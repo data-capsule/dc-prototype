@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package dc_metadata;
+
+message DataCapsuleMetadata {
+
+  string name = 1;
+
+  bytes writer_key = 2;
+  optional bytes creator_key = 3;
+
+  bytes decryption_source = 4;
+
+  int64 creation_timestamp = 5;
+
+  optional string policy = 6;
+
+}
