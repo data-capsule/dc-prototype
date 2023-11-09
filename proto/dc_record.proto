@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package dc_record;
+
+// Based on
+// https://github.com/data-capsule/dc-replication/blob/main/src/proto/capsule.proto
+
+message DataCapsuleRecord {
+
+  string payload = 1;
+  int64 sender = 2;
+  bytes signature = 3;
+
+  bytes parent_hash = 4;
+  bytes hash = 5;
+
+  int64 timestamp = 6;
+  string msg_type = 7; // (e.g. EOE, RTS, SYNC)
+
+  int64 len_plaintext_payload = 8;
+
+  optional string reply_addr = 9; // to send ack
+  optional string payload_hmac = 10;
+
+  bool verified = 4001;
+
+}
