@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+import "sign.proto";
+
+
+message SubscribeRequest {
+    enum Type {
+        last_hash = 1; // return the last hash
+        get_after = 2; // return the next hash after, waiting for it if it doesn't exist yet 
+    }
+    SubscribeRequestType type = 1;
+    optional bytes hash = 2; // needed for get_after
+}
+
+message SubscribeResponse {
+    bytes hash = 1; 
+}
+
+
+

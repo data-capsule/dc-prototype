@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+import "sign.proto";
+
+
+message WriteRequest {
+    enum Type {
+        data = 1;
+        commit = 2;
+    }
+    Type type = 1;
+    optional bytes data = 2;
+    optional SignedHash commit_root = 3;
+}
+
+message WriteResponse {
+    optional SignedHash server_signature = 1; // for commit
+}

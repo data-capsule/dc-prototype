@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+import "sign.proto";
+
+
+message CreateRequest {
+    bytes creater_pub_key = 1;
+    bytes writer_pub_key = 2;
+    string description = 3;
+    SignedHash creater_signature = 4;
+}
+
+message CreateResponse {
+    SignedHash server_signature = 1;
+}

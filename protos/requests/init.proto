@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+import "sign.proto";
+
+
+message InitRequest {
+    enum Type {
+        create = 1;
+        write = 2;
+        read = 3;
+        subscribe = 4;
+    }
+    Type type = 1;
+    optional bytes datacapsule_hash = 2; // for read, write, subscribe requests
+}
+
+message InitResponse {
+    bool init_success = 2;
+}
+
