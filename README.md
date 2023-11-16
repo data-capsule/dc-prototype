@@ -64,7 +64,7 @@ Message format: see [write.proto](./protos/requests/write.proto).
 ## "Reader" connection
 
 A reader's main purpose is to get the data for any records that it knows about.
-For each reader connection, the client and the server both maintain two things:
+For each reader connection, the client and the server both maintain three things:
  - a "Hash Cache" that stores some proven hashes. There are no particular
    requirements for the hash cache, as long as it has the exact same behavior
    between client and server. One implementation could be a 1024 element 
@@ -72,6 +72,8 @@ For each reader connection, the client and the server both maintain two things:
  - the contents of the last proven hash block (this starts out as a bunch of
    null hashes). This ensures that each element of a proof can depend on the
    previous element.
+ - the last signed hash (this starts out as the null hash). This ensures that
+   all records within the same commit can be proven with one signature. 
 
 
 A reader has two operations:
@@ -81,8 +83,8 @@ A reader has two operations:
    proof takes the following form:
      - optionally, a signed hash (signed by the datacapsule's writer). This may
        not be included if the root of the proof is in the hash cache. If it is
-       included and the signature is valid, the last proven hash block is moved
-       to the hash cache, and this hash becomes the last proven hash block.
+       included and the signature is valid, the last signed hash is moved
+       to the hash cache, and this hash becomes the last signed hash.
      - zero or more hash blocks. Each hash block is valid if its hash is in the
        cache, or in the last proven hash block. If it is valid, it becomes the
        last proven hash block, and the previous last proven hash block is
@@ -117,25 +119,27 @@ cases:
 ## "Subscriber" connection
 
 A subscriber's main purpose is to discover when new records are written to a
-datacapsule. It has two operations:
+datacapsule. It has four operations:
 
- - `get_last_hash() -> hash` gets the hash of the last written record to the
-    datacapsule for this storage server. Note that two different servers may
-    return different results, even if they contain the same data, if they
-    received the data in a different order.
- - `get_after(hash) -> hash` gets the hash of the record succeeding the given
-    hash. If the given hash is the latest one, this operation will block until
-    a new record is available. 
+ - `get_last_num() -> num` gets the sequence number of the last written record to the
+    datacapsule for this storage server. 
+ - `name_from_num(num) -> hash` gets the hash of the record corresponding to the sequence number.
+ - `num_from_name(hash) -> num` gets the sequence number of the record corresponding to the hash.
+ - `wait_after(num) -> num` waits until the last sequence number is greater than num. Returns the new last sequence number.
 
 Message format: see [subscribe.proto](./protos/requests/subscribe.proto).
 
-A common pattern is to call `get_after` in a loop to get new updates:
+A common pattern is to call `wait_after` in a loop to get new updates:
 
 ```python
-hash = get_last_hash()
+num = get_last_hash()
 while True:
-    hash = get_after(hash)
-    print(f"New record: {hash}")
+    new_last = wait_after(num)
+    while num < new_last:
+      num = num + 1
+      hash = name_from_num(num)
+      if (hash):
+        print(f"New record: {hash}")
 ```
 
 
@@ -170,28 +174,41 @@ servers. Therefore it may not be relied on.
 
 ## Storage Schema
 
-I think they want key-value store interface, but a relational database design might better fit our needs.
-
-Initial plan: each datacapsule gets a separate set of tables. Each data capsule gets:
-
+Initial plan: each datacapsule gets a separate set of tables. See [storage.proto](./protos/storage.proto). Each data capsule gets:
 
  - stored in a file/memory:
      - creator pub key
      - creator signature
      - writer pubkey
      - description
-     - latest block
- - stored in a file? A bunch of binary data (essentially use it as a huge array)
- - datablocks table
+     - latest sequence number (mutable)
+ - bindata:
+     - hash (primary key)
+     - data
+ - recordblocks:
      - hash (primary key)
      - hash of parent
-     - hash of next block
-     - index+length of data
+     - sequence number
  - treeblocks: 
      - hash of children (primary key)
-     - hash of parent
+     - hash of parent (null until parent exists)
      - whether this treeblock is signed
      - hash of each child
  - sigblocks
      - hash of treeblock (primary key)
      - signature
+ - seqblocks:
+     - sequence number (primary key)
+     - hash of record
+
+Note that on every write, 
+ - the bindata is appended to
+ - the index/length/hash is stored in memory.
+On every commit, the following things happen:
+ - datablocks table is appended to
+ - treeblocks table is appended to
+ - one append to sigblocks table
+ - one thing in datablocks table changes (it gets a new next)
+ - one thing in treeblocks table changes (it gets a new parent)
+ - latest block is updated
+ - any subscribers need to be notified

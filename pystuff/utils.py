@@ -20,19 +20,3 @@ def verify_signature(data: bytes, signature: bytes, signing_public_key: bytes):
     return True
 
 
-class HashCache():
-    """
-    A 2-way set-associative cache
-    
-    """
-    def __init__(self):
-        pass
-
-    def store(self, hash: bytes):
-        pass
-
-    def contains(self, hash: bytes) -> bool:
-        pass
-
-    def clear(self):
-        pass

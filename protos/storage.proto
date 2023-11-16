@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+
+
+// key: [dhash]
+message StoredDataCapsule {
+    bytes creater_pub_key = 1;
+    bytes writer_pub_key = 2;
+    string description = 3;
+    bytes creater_signature = 4;
+    
+    bytes latest_seq_number = 5; 
+    // latest_seq_number changes often, usually stored in memory
+    // on server shutdown, write this to file
+}
+
+
+// all of these are "namespaced" with [table name]_[dhash]
+
+// key: [hash of record data]
+// not used: bytes just stored directly
+message DataBlock {
+    bytes data = 1;
+}
+
+// key: [hash of record data]
+message RecordBlock {
+    bytes parent = 1; // a treeblock
+    fixed64 sequence_number = 2;
+}
+
+// key: [hash of children]
+message TreeBlock {
+    optional bytes parent = 1;
+    bool signed = 2;
+
+    repeated bytes children = 2;
+}
+
+// key: [hash of treeblock's children]
+// not used: bytes just stored directly
+message SigBlock {
+    bytes signature = 1;
+}
+
+// key: sequence number
+// not user: bytes just stored directly
+message SeqBlock {
+    bytes record_hash = 1;
+}

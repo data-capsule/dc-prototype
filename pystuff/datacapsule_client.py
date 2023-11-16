@@ -31,7 +31,7 @@ def create(self, address: str, server_pub_key: bytes, dc: DCMetadata,
     self.connection.send("I would like to create this DC: " + dc)
 
 
-class WriterClient():
+class WriterConnection():
     def __init__(self, address: str, server_pub_key: bytes, dc_name: bytes,
              sym_key: bytes, sig_pri_key: bytes):
         self.connection = Connection(address)
@@ -51,7 +51,7 @@ class WriterClient():
 
 
 
-class ReaderClient():
+class ReaderConnection():
     def __init__(self, address: str, dc_name: bytes, sym_key: bytes, sig_pub_key: bytes):
         self.connection = Connection(address)
         self.sym_key = sym_key
