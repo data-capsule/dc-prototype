@@ -41,7 +41,7 @@ Message format: see [create.proto](./protos/requests/create.proto).
 
 A writer's main purpose is to append new records to a datacapsule. For each writer connection, the client and the server both maintain a list of hashes of uncommitted records. A writer has two operations:
 
- - `write(data)` prepends a nonce (see [duplicate records](#duplicate-records)), encrypts a record, then sends the record to the server.
+ - `write(data, sequence_number)` prepends a nonce (see [duplicate records](#duplicate-records)), encrypts a record, then sends the record to the server.
  - `commit(hash) -> signedhash` creates a Merkle tree of hashes of the uncommitted
    records. This also includes an additional hash, which may be the root hash
    of the previous commit. The additional hash is optional; it exists mainly
@@ -89,6 +89,9 @@ A reader has two operations:
        cache, or in the last proven hash block. If it is valid, it becomes the
        last proven hash block, and the previous last proven hash block is
        moved to the cache.
+ - (potential 3rd operation) `startCache(hashes)` tells the server the state of
+   the state of its cache. This will allow the client to persist its cache
+   across connections.
    at the end of the proof, the given hash must be present in the last proven
    hash block or in the hash cache. If not, the proof is invalid.
 

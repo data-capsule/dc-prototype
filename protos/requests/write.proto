@@ -9,8 +9,9 @@ message WriteRequest {
         commit = 2;
     }
     Type type = 1;
-    optional bytes data = 2;
-    optional SignedHash commit_root = 3;
+    optional bytes data = 2; // for data
+    optional fixed64 sequence_number = 3; // for data
+    optional SignedHash commit_root = 4; // for commit
 }
 
 message WriteResponse {
