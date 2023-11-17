@@ -1,3 +1,5 @@
+use crate::config::FANOUT;
+
 
 
 
@@ -23,22 +25,26 @@ pub struct SignedHash {
 
 
 
-fn create_hash(data: &[u8]) -> Hash {
+pub fn hash_data(data: &[u8]) -> Hash {
     [0; 32]
 }
 
-fn encrypt(data: &[u8], key: SymmetricKey) -> Vec<u8> {
+pub fn hash_block(block: &[Hash; FANOUT]) -> Hash {
+    [0; 32]
+}
+
+pub fn encrypt(data: &[u8], key: SymmetricKey) -> Vec<u8> {
     vec![]
 }
 
-fn decrypt(data: &[u8], key: SymmetricKey) -> Vec<u8> {
+pub fn decrypt(data: &[u8], key: SymmetricKey) -> Vec<u8> {
     vec![]
 }
 
-fn sign(hash: Hash, key: PublicKey) -> Signature {
+pub fn sign(hash: Hash, key: PublicKey) -> Signature {
     [0; 256]
 }
 
-fn verify_signature(signature: Signature, hash: Hash) -> bool {
+pub fn verify_signature(signature: Signature, hash: Hash) -> bool {
     true
 }

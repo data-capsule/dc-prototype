@@ -2,7 +2,7 @@ mod storage;
 mod crypto;
 mod config;
 mod readstate;
-
+mod writestate;
 
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};

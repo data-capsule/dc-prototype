@@ -1,4 +1,4 @@
-use crate::{crypto::{PublicKey, Signature, Hash}, config::FANOUT};
+use crate::{crypto::{PublicKey, Signature, Hash}, config::FANOUT, writestate::{TreeBlock, RecordBlock}};
 
 
 
@@ -8,17 +8,6 @@ struct StoredDataCapsule {
     description: String,
     creator_signature: Signature,
     latest_record: Hash
-}
-
-struct RecordBlock {
-    parent: Hash,
-    next: Option<Hash>
-}
-
-struct TreeBlock {
-    parent: Option<Hash>,
-    signed: bool,
-    children: [Hash; FANOUT]
 }
 
 // treeblock, sigblock

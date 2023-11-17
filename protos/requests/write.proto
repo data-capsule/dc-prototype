@@ -12,6 +12,7 @@ message WriteRequest {
     optional bytes data = 2; // for data
     optional fixed64 sequence_number = 3; // for data
     optional SignedHash commit_root = 4; // for commit
+    optional bytes additional_hash = 5; // for commit
 }
 
 message WriteResponse {
