@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+
+message SignedHash {
+    bytes hash = 1;
+    bytes signature = 2;
+}
+
+message InitRequest {
+    enum Type {
+        create = 0;
+        write = 1;
+        read = 2;
+        subscribe = 3;
+    }
+    Type type = 1;
+    optional bytes datacapsule_hash = 2; // for read, write, subscribe requests
+}
+
+message InitResponse {
+    bool init_success = 2;
+}
+
+message CreateRequest {
+    bytes creater_pub_key = 1;
+    bytes writer_pub_key = 2;
+    string description = 3;
+    SignedHash creater_signature = 4;
+}
+
+message CreateResponse {
+    SignedHash server_signature = 1;
+}
+
+message ReadRequest {
+    enum Type {
+        data = 0;
+        proof = 1;
+    }
+    Type type = 1;
+    bytes hash = 2;
+}
+
+message DataResponse {
+    bytes data = 1;
+}
+
+message ProofResponse {
+    optional SignedHash root = 1;
+    repeated bytes hashes = 2; // must be a multiple of fanout
+}
+
+message SubscribeRequest {
+    enum Type {
+        last_num = 0; // return the last sequence number
+        name_from_num = 1; // return a hash for this sequence number
+        num_from_name = 2;
+        wait_after = 3; // wait until the last number is larger than this
+    }
+    Type type = 1;
+    optional fixed64 num = 2; // for name_from_num and wait_after
+}
+
+message SubscribeResponse {
+    optional fixed64 num = 1; // if it exists
+    optional bytes hash = 2;
+}
+
+message WriteRequest {
+    enum Type {
+        write = 0;
+        commit = 1;
+    }
+    Type type = 1;
+    optional bytes data = 2; // for data
+    optional fixed64 sequence_number = 3; // for data
+    optional SignedHash commit_root = 4; // for commit
+    optional bytes additional_hash = 5; // for commit
+}
+
+message WriteResponse {
+    optional SignedHash server_signature = 1; // for commit
+}
