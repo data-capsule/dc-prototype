@@ -5,8 +5,8 @@ import "sign.proto";
 
 message ReadRequest {
     enum Type {
-        data = 1;
-        proof = 2;
+        data = 0;
+        proof = 1;
     }
     Type type = 1;
     bytes hash = 2;

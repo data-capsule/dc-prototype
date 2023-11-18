@@ -5,8 +5,8 @@ import "sign.proto";
 
 message WriteRequest {
     enum Type {
-        data = 1;
-        commit = 2;
+        write = 0;
+        commit = 1;
     }
     Type type = 1;
     optional bytes data = 2; // for data
