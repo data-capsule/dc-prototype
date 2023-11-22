@@ -1,4 +1,4 @@
-use crate::{crypto::{PublicKey, Signature, Hash}, config::FANOUT, writestate::{TreeBlock, RecordBlock}};
+use crate::{crypto::{PublicKey, Signature, Hash}, writestate::{TreeBlock, RecordBlock}};
 
 
 
@@ -28,5 +28,3 @@ trait StorageLayer {
     fn store_signature(&mut self, dc: &Hash, name: &Hash, sig: &Signature) -> Result<(), ()>;
     fn load_signature(&mut self, dc: &Hash, name: &Hash) -> Result<Signature, ()>;
 }
-
-

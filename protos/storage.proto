@@ -34,7 +34,7 @@ message TreeBlock {
     optional bytes parent = 1;
     bool signed = 2;
 
-    repeated bytes children = 2;
+    repeated bytes children = 3;
 }
 
 // key: [hash of treeblock's children]

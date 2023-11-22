@@ -15,11 +15,15 @@ path = "src/server.rs"
 
 [[bin]]
 name = "messaround"
-path = "src/messaround.rs"
+path = "src/misc/messaround.rs"
 
 [[bin]]
 name = "tokiotcpclient"
-path = "src/tokiotcpclient.rs"
+path = "src/misc/tokiotcpclient.rs"
+
+[[bin]]
+name = "tokioserver"
+path = "src/misc/tokioserver.rs"
 
 [dependencies]
 openssl = "0.10.59"
@@ -30,5 +34,5 @@ bytes = "1.5.0"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.1", default-features = false, features = ["fmt", "ansi", "env-filter", "tracing-log"] }
 tokio-stream = "0.1.14"
-
-
+serde = "1.0.193"
+postcard = {version = "1.0.8", features = ["use-std"]}

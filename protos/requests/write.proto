@@ -4,15 +4,18 @@ import "sign.proto";
 
 
 message WriteRequest {
-    enum Type {
-        data = 1;
-        commit = 2;
+    message Data {
+        bytes data = 1; // for data
+        fixed64 sequence_number = 2; // for data
     }
-    Type type = 1;
-    optional bytes data = 2; // for data
-    optional fixed64 sequence_number = 3; // for data
-    optional SignedHash commit_root = 4; // for commit
-    optional bytes additional_hash = 5; // for commit
+    message Commit {
+        SignedHash commit_root = 1;
+        bytes additional_hash = 2;
+    }
+    oneof type {
+        Data data = 1;
+        Commit commit = 2;
+    }
 }
 
 message WriteResponse {

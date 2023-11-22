@@ -5,12 +5,12 @@ import "sign.proto";
 
 message SubscribeRequest {
     enum Type {
-        last_num = 1; // return the last sequence number
-        name_from_num = 2; // return a hash for this sequence number
-        num_from_name = 3;
-        wait_after = 4; // wait until the last number is larger than this
+        last_num = 0; // return the last sequence number
+        name_from_num = 1; // return a hash for this sequence number
+        num_from_name = 2;
+        wait_after = 3; // wait until the last number is larger than this
     }
-    SubscribeRequestType type = 1;
+    Type type = 1;
     optional fixed64 num = 2; // for name_from_num and wait_after
 }
 

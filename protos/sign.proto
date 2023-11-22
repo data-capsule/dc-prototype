@@ -3,5 +3,5 @@ syntax = "proto3";
 
 message SignedHash {
     bytes hash = 1;
-    bytes signature = 1;
+    bytes signature = 2;
 }

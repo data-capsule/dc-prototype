@@ -1,3 +1,5 @@
+use serde::{Serialize, Deserialize};
+
 use crate::config::FANOUT;
 
 
@@ -9,15 +11,18 @@ pub type SymmetricKey = [u8; 16];
 
 // ECDSA signatures
 // NIST P-256 (secp256r1) elliptic curve
-pub type PublicKey = [u8; 64];
-pub type PrivateKey = [u8; 256];
-pub type Signature = [u8; 256];
+pub type PublicKey = [u8; 32]; // TODO: ??
+pub type PrivateKey = [u8; 32]; // TODO: ??
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Signature([u64; 8]); // TODO: ??
 
 // SHA-256 hash
 pub type Hash = [u8; 32];
 pub const NULL_HASH: Hash = [0; 32];
 
 // convenient
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SignedHash {
     signature: Signature,
     hash: Hash

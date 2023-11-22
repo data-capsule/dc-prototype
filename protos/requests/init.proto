@@ -5,10 +5,10 @@ import "sign.proto";
 
 message InitRequest {
     enum Type {
-        create = 1;
-        write = 2;
-        read = 3;
-        subscribe = 4;
+        create = 0;
+        write = 1;
+        read = 2;
+        subscribe = 3;
     }
     Type type = 1;
     optional bytes datacapsule_hash = 2; // for read, write, subscribe requests
