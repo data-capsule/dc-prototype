@@ -2,6 +2,7 @@ import socket
 import threading
 import protos.requests_pb2 as requests_pb2
 import protos.storage_pb2 as storage_pb2
+import random
 
 # assume this object does not go down
 
@@ -46,7 +47,7 @@ def accept_connections(client):
         conn_func = {0: create_connection, 1: write_connection, 2: read_connection, 3: subscribe_connection}
         if connection_type > 0:
             datacapsule_hash = request.datacapsule_hash
-        thread = threading.Thread(target=handle_connection, args=(client, datacapsule_hash,))
+        thread = threading.Thread(target=conn_func, args=(client, datacapsule_hash,))
         thread.start()
         response = requests_pb2.InitResponse()
         response.init_success = True
@@ -69,6 +70,18 @@ def write_connection(client, hash):
     data = client.recv(1024)
     request = requests_pb2.CreateRequest()
     request.ParseFromString(data)
+    data = client.recv(1024)
+    #Check message type
+    #If write, handle with write function (below)
+    #If commit, handle with commit function
+
+
+
+def write():
+    pass
+
+def commit():
+    pass
 
 def read_connection(client, hash):
     data = client.recv(1024)
