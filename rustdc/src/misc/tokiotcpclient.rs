@@ -1,6 +1,6 @@
 use tokio::io;
-use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-use futures::{future, SinkExt};
+use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite, Framed};
+use futures::{future, SinkExt, StreamExt};
 use std::{error::Error, net::SocketAddr};
 use tokio::net::TcpStream;
 
@@ -13,13 +13,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stdin = FramedRead::new(io::stdin(), BytesCodec::new());
     let mut stdout = FramedWrite::new(io::stdout(), BytesCodec::new());
 
-    let mut stream = TcpStream::connect(addr).await?;
-    let (r, w) = stream.split();
-    let mut sink = FramedWrite::new(w, BytesCodec::new());
-    let mut stream = FramedRead::new(r, BytesCodec::new());
+    let stream = Framed::new(TcpStream::connect(addr).await?, BytesCodec::new());
+    let (mut r, mut w) = stream.split();
 
-    let f1 = sink.send_all(&mut stdin);
-    let f2 = stdout.send_all(&mut stream);
+    let f1 = r.send_all(&mut stdin);
+    let f2 = stdout.send_all(&mut w);
 
     match future::join(f1, f2).await {
         (Err(e), _) | (_, Err(e)) => Err(e.into()),

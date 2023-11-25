@@ -17,7 +17,7 @@ pub struct RecordBlock {
 }
 
 // returns the hash of the root of the merkle tree
-fn merkle_tree_root(hashes: &[Hash], additional_hash: &Hash) -> Hash {
+pub fn merkle_tree_root(hashes: &[Hash], additional_hash: &Hash) -> Hash {
     let mut current_layer = Vec::new();
     current_layer.extend(hashes);
     current_layer.push(*additional_hash);
@@ -45,7 +45,7 @@ fn merkle_tree_root(hashes: &[Hash], additional_hash: &Hash) -> Hash {
 
 // returns record blocks to be stored, tree blocks to be stored
 // and the parent of the additional hash
-fn merkle_tree_storage(hashes: &[Hash], sequence_numbers: &[u64], additional_hash: &Hash) -> (Vec<RecordBlock>, Vec<TreeBlock>, Hash) {
+pub fn merkle_tree_storage(hashes: &[Hash], sequence_numbers: &[u64], additional_hash: &Hash) -> (Vec<RecordBlock>, Vec<TreeBlock>, Hash) {
     let mut records = Vec::new();
     let mut treeblocks: Vec<TreeBlock> = Vec::new();
     let mut additional_hash_parent = NULL_HASH;
@@ -93,7 +93,7 @@ fn merkle_tree_storage(hashes: &[Hash], sequence_numbers: &[u64], additional_has
     }
 
     treeblocks.last_mut().unwrap().signed = true;
-    return (records, treeblocks, additional_hash_parent);
+    (records, treeblocks, additional_hash_parent)
 }
 
 

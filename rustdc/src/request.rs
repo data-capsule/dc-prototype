@@ -1,7 +1,7 @@
 use std::io;
 
 use bytes::{BufMut, BytesMut};
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use tokio_util::codec::{Encoder, Decoder};
 use postcard::{to_stdvec, from_bytes};
 
@@ -94,7 +94,7 @@ fn encode<T: Serialize>(item: T, dst: &mut BytesMut) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn decode<'a, T: Serialize + Deserialize<'a>>(src: &mut BytesMut) -> Result<Option<T>, io::Error> {
+fn decode<'a, T: Serialize + DeserializeOwned>(src: &mut BytesMut) -> Result<Option<T>, io::Error> {
     if src.len() < 8 {
         return Ok(None)
     }
@@ -114,9 +114,15 @@ fn decode<'a, T: Serialize + Deserialize<'a>>(src: &mut BytesMut) -> Result<Opti
     }
 }
 
-pub struct RequestCodec(());
+pub struct ClientCodec(());
 
-impl Encoder<Request> for RequestCodec {
+impl ClientCodec {
+    pub fn new() -> Self {
+        Self(())
+    }
+}
+
+impl Encoder<Request> for ClientCodec {
     type Error = io::Error;
 
     fn encode(&mut self, item: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -124,8 +130,8 @@ impl Encoder<Request> for RequestCodec {
     }
 }
 
-impl Decoder for RequestCodec {
-    type Item = Request;
+impl Decoder for ClientCodec {
+    type Item = Response;
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -133,9 +139,15 @@ impl Decoder for RequestCodec {
     }
 }
 
-pub struct ResponseCodec(());
+pub struct ServerCodec(());
 
-impl Encoder<Response> for ResponseCodec {
+impl ServerCodec {
+    pub fn new() -> Self {
+        Self(())
+    }
+}
+
+impl Encoder<Response> for ServerCodec {
     type Error = io::Error;
 
     fn encode(&mut self, item: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -143,8 +155,8 @@ impl Encoder<Response> for ResponseCodec {
     }
 }
 
-impl Decoder for ResponseCodec {
-    type Item = Response;
+impl Decoder for ServerCodec {
+    type Item = Request;
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
