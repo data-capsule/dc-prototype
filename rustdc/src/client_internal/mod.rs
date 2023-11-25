@@ -1,15 +1,18 @@
 use std::io;
 
-pub mod writer;
+use openssl::error::ErrorStack;
+
+pub mod creator;
 pub mod reader;
-
-
+pub mod subscriber;
+pub mod writer;
 
 pub enum DCError {
     ServerError(String),
     Cryptographic(String),
+    OpenSSL(ErrorStack),
     IO(io::Error),
-    Other(String)
+    Other(String),
 }
 
 impl From<io::Error> for DCError {
@@ -18,24 +21,8 @@ impl From<io::Error> for DCError {
     }
 }
 
-
-
-pub struct CreatorConnection {
-
+impl From<ErrorStack> for DCError {
+    fn from(value: ErrorStack) -> Self {
+        Self::OpenSSL(value)
+    }
 }
-
-impl CreatorConnection {
-
-}
-
-
-
-
-pub struct SubscriberConnection {
-
-}
-
-impl SubscriberConnection {
-    
-}
-

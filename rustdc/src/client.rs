@@ -1,8 +1,7 @@
-
-mod storage;
-mod crypto;
+mod client_internal;
 mod config;
+mod crypto;
+mod merkle;
 mod readstate;
-mod writestate;
 mod request;
-pub mod client_internal;
+pub use client_internal::{reader, writer, DCError};

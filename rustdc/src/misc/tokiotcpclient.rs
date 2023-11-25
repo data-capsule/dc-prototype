@@ -1,9 +1,8 @@
-use tokio::io;
-use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite, Framed};
 use futures::{future, SinkExt, StreamExt};
 use std::{error::Error, net::SocketAddr};
+use tokio::io;
 use tokio::net::TcpStream;
-
+use tokio_util::codec::{BytesCodec, Framed, FramedRead, FramedWrite};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
