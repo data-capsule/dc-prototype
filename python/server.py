@@ -6,6 +6,7 @@ import random
 
 # assume this object does not go down
 
+
 def main():
     # should be a K-V proto stored on AWS
     metadata = {}
@@ -31,7 +32,8 @@ def receive(server):
         #clients.append(client)
 
         # Print And Broadcast Nickname
-        client.send('Connected to server!'.encode('ascii'))
+        #client.send('Connected to server!'.encode('ascii'))
+        
 
         # Start Handling Thread For Client
         thread = threading.Thread(target=accept_connections, args=(client,))
@@ -42,12 +44,12 @@ def accept_connections(client):
         data = client.recv(1024)
         request = requests_pb2.InitRequest()
         request.ParseFromString(data)
-        connection_type = request.Type
+        connection_type = request.type
         datacapsule_hash = None
         conn_func = {0: create_connection, 1: write_connection, 2: read_connection, 3: subscribe_connection}
         if connection_type > 0:
             datacapsule_hash = request.datacapsule_hash
-        thread = threading.Thread(target=conn_func, args=(client, datacapsule_hash,))
+        thread = threading.Thread(target=conn_func[connection_type], args=(client, datacapsule_hash,))
         thread.start()
         response = requests_pb2.InitResponse()
         response.init_success = True
@@ -93,7 +95,8 @@ def subscribe_connection(client, hash):
     request = requests_pb2.CreateRequest()
     request.ParseFromString(data)
 
-
+if __name__ == "__main__":
+    main()
 
 
 

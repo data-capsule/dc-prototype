@@ -14,7 +14,7 @@ def init_client(conn_type = "read", datacapsule_hash = None):
     # Starting Server (TODO: check that client isn't already connected)
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_address = (host, port)
-    client.connect(host, port)
+    client.connect(server_address)
 
     init_req = requests_pb2.InitRequest()
     init_req.type = conn_type
@@ -24,8 +24,13 @@ def init_client(conn_type = "read", datacapsule_hash = None):
     data = client.recv(1024)
     response = requests_pb2.InitResponse()
     response.ParseFromString(data)
-    if not response.success:
+    if not response.init_success:
         print("Connection failed")
         client.close()
+    else:
+        print("Connected to server!!!!")
+        
 
 
+if __name__ == "__main__":
+    init_client()
