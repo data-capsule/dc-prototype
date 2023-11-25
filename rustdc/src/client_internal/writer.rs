@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
-use crate::{client_internal::DCError, request::Response, crypto::{encrypt, hash_data, sign, verify_signature}, writestate::merkle_tree_root};
-use crate::{request::{ClientCodec, Request}, crypto::{SymmetricKey, PrivateKey, Hash, PublicKey, NULL_HASH}};
+use crate::{client_internal::DCError, request::{Response, WriteRequest}, crypto::{encrypt, hash_data, sign, verify_signature}, writestate::merkle_tree_root};
+use crate::{request::{ClientCodec, Request}, crypto::{SymmetricKey, PrivateKey, Hash, PublicKey}};
 
 
 pub struct WriterConnection {
@@ -156,7 +156,7 @@ impl WriterConnection {
                     // add the hash of seqno + encrypted data to uncommitted hashes
                     let encrypted_data = encrypt(data, encryption_key);
                     uncommitted_hashes.push(hash_data(*next_sequence_number, &encrypted_data));
-                    let req = Request::Write(crate::request::WriteRequest::Data { 
+                    let req = Request::Write(WriteRequest::Data { 
                         data: encrypted_data, 
                         sequence_number: *next_sequence_number 
                     });
@@ -171,7 +171,7 @@ impl WriterConnection {
                     // updated finished with the root hash
                     let root_hash = merkle_tree_root(&uncommitted_hashes, &last_commit_hash);
                     let signature = sign(&root_hash, signing_key);
-                    let req = Request::Write(crate::request::WriteRequest::Commit {
+                    let req = Request::Write(WriteRequest::Commit {
                         additional_hash: last_commit_hash,
                         signature
                     });
@@ -199,7 +199,7 @@ impl WriterConnection {
         for op in operations {
             let resp = match connection_r.next().await {
                 Some(r) => r?,
-                None => {return Err(DCError::Other("stream ended".to_string()));}
+                None => return Err(DCError::Other("stream ended".to_string()))
             };
             match (resp, op) {
                 (Response::WriteData(s), WriterOperation::Record(_)) => {
@@ -208,13 +208,17 @@ impl WriterConnection {
                     }
                 },
                 (Response::WriteCommit(signed_hash), WriterOperation::Commit) => {
+                    let signed_hash = match signed_hash {
+                        Some(s) => s,
+                        None => return Err(DCError::ServerError("could not commit".into()))
+                    };
                     if verify_signature(&signed_hash, &server_public_key) {
                         finished.push(signed_hash.hash);
                     } else {
                         return Err(DCError::Cryptographic("bad signature".into()));
                     }
                 },
-                _ => {return Err(DCError::ServerError("mismatched response".into()));}
+                _ => return Err(DCError::ServerError("mismatched response".into()))
             }
         }
         Ok(())

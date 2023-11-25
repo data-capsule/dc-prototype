@@ -1,6 +1,7 @@
 use std::io;
 
 pub mod writer;
+pub mod reader;
 
 
 
@@ -29,16 +30,6 @@ impl CreatorConnection {
 
 
 
-
-
-
-pub struct ReaderConnection {
-
-}
-
-impl ReaderConnection {
-    
-}
 
 pub struct SubscriberConnection {
 

@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use tokio_util::codec::{Encoder, Decoder};
 use postcard::{to_stdvec, from_bytes};
 
-use crate::crypto::{Hash, PublicKey, SignedHash};
+use crate::{crypto::{Hash, PublicKey, SignedHash}, config::FANOUT};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
@@ -20,13 +20,13 @@ pub enum Request {
 pub enum Response {
     Init(bool), // bool success
     Create(SignedHash), // hash of created datacapsule
-    ReadData(Vec<u8>),
-    ReadProof{root: SignedHash, hashes: Vec<Hash>},
+    ReadData{data: Vec<u8>, sequence_number: u64},
+    ReadProof{root: Option<SignedHash>, blocks: Vec<[Hash; FANOUT]>},
     ReadSeed(bool),
     WriteData(bool),
-    WriteCommit(SignedHash),
-    SubscribeNum(u64), // last_num, num, wait_after
-    SubscribeName(Hash) // name
+    WriteCommit(Option<SignedHash>),
+    SubscribeNum(Option<u64>), // last_num, num, wait_after
+    SubscribeName(Option<Hash>) // name
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -49,7 +49,7 @@ pub struct CreateRequest {
 pub enum ReadRequest {
     Data(Hash),
     Proof(Hash),
-    Seed(Vec<Hash>)
+    // Seed(Vec<Hash>) TODO: implement option to seed with hashes
 }
 
 #[derive(Serialize, Deserialize, Debug)]

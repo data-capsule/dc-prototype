@@ -41,7 +41,7 @@ fn main() -> Result<(), ErrorStack> {
 
         let now = Instant::now();
 
-        let cheese = sig.verify(b"I like cheese and bread and butter", &key)?;
+        let _cheese = sig.verify(b"I like cheese and bread and butter", &key)?;
 
         let elapsed = now.elapsed();
         println!("Elapsed: {:?}", elapsed);
@@ -60,7 +60,7 @@ fn main() -> Result<(), ErrorStack> {
     let m1: &[u8] = &timed_hash(&long)?;
     let m2: &[u8] = &timed_hash(b"123456781234567812345678123456781234567812")?;
     let m3: &[u8] = &timed_hash2(m1, m2)?;
-    let m4: &[u8] = &timed_hash2(m2, m3)?;
+    let _m4: &[u8] = &timed_hash2(m2, m3)?;
 
 
 
