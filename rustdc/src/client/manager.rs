@@ -12,14 +12,14 @@ use crate::shared::{
     request::{ClientCodec, InitRequest, ManageRequest, Request, Response},
 };
 
-use super::{initialize_connection, DCError};
+use super::{initialize_connection, DCClientError};
 
 pub struct ManagerConnection {
     connection: Framed<TcpStream, ClientCodec>,
 }
 
 impl ManagerConnection {
-    pub async fn new(server_address: SocketAddr) -> Result<Self, DCError> {
+    pub async fn new(server_address: SocketAddr) -> Result<Self, DCClientError> {
         let stream = initialize_connection(server_address, InitRequest::Manage).await?;
         Ok(Self { connection: stream })
     }
@@ -31,7 +31,7 @@ impl ManagerConnection {
         writer_pub_key: &PublicKey,
         server_pub_key: &PublicKey,
         description: String,
-    ) -> Result<(), DCError> {
+    ) -> Result<(), DCClientError> {
         let creator_pub_key = serialize_pubkey(creator_pub_key);
         let writer_pub_key = serialize_pubkey(writer_pub_key);
         let meta_hash = hash_dc_metadata(&creator_pub_key, &writer_pub_key, &description);
@@ -47,32 +47,32 @@ impl ManagerConnection {
         let resp = match self.connection.next().await {
             Some(r) => r?,
             None => {
-                return Err(DCError::Other("stream ended".to_string()));
+                return Err(DCClientError::Other("stream ended".to_string()));
             }
         };
         match resp {
             Response::ManageCreate(s) => match verify_signature(&s, server_pub_key) {
                 Some(h) => {
                     if h != meta_hash {
-                        Err(DCError::Cryptographic("mismatched hashes".into()))
+                        Err(DCClientError::Cryptographic("mismatched hashes".into()))
                     } else {
                         Ok(())
                     }
                 }
-                None => Err(DCError::Cryptographic("bad signature".into())),
+                None => Err(DCClientError::Cryptographic("bad signature".into())),
             },
-            Response::Failed => Err(DCError::ServerError("server failed".into())),
-            _ => Err(DCError::ServerError("mismatched response".into())),
+            Response::Failed => Err(DCClientError::ServerError("server failed".into())),
+            _ => Err(DCClientError::ServerError("mismatched response".into())),
         }
     }
 
-    pub async fn read(&mut self, dc_name: Hash) -> Result<DataCapsule, DCError> {
+    pub async fn read(&mut self, dc_name: Hash) -> Result<DataCapsule, DCClientError> {
         let req = Request::Manage(ManageRequest::Read(dc_name));
         self.connection.send(req).await?;
         let resp = match self.connection.next().await {
             Some(r) => r?,
             None => {
-                return Err(DCError::Other("stream ended".to_string()));
+                return Err(DCClientError::Other("stream ended".to_string()));
             }
         };
         match resp {
@@ -82,11 +82,11 @@ impl ManagerConnection {
                 {
                     Ok(dc)
                 } else {
-                    Err(DCError::Cryptographic("mismatched hashes".into()))
+                    Err(DCClientError::Cryptographic("mismatched hashes".into()))
                 }
             }
-            Response::Failed => Err(DCError::ServerError("server failed".into())),
-            _ => Err(DCError::ServerError("mismatched response".into())),
+            Response::Failed => Err(DCClientError::ServerError("server failed".into())),
+            _ => Err(DCClientError::ServerError("mismatched response".into())),
         }
     }
 }

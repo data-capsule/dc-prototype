@@ -31,6 +31,14 @@ used cryptography library of all time.
 
 Code [here](./rustdc/src/crypto.rs) (TODO: have not actually bound to openSSL types yet)
 
+Crypto benchmarks:
+ - signing: used `Nid::X9_62_PRIME256V1` and `EcdsaSig::sign(b"I like cheese and bread and butter", &key)?.to_der()?`,
+   the signing took `115.389µs`. I think the signatures may have been an exaggeration.
+ - verifying: verifying took 50µs.
+
+
+
+
 ## Executor
 
 Tokio seems like the natural choice for network stuff. However, we have some things that are non-ideal for Tokio:
@@ -40,6 +48,24 @@ Tokio seems like the natural choice for network stuff. However, we have some thi
 So Tokio may not be ideal here. We could switch completely to threads (if we assume a small number of
 clients to the datacapsule server), or we could make a thread pool (maybe Rayon?) for processing
 requests.
+
+
+# Optimization TODOs:
+
+ - use an mspc in client?
+     - turn client into mspc select thing?
+ - use an mspc in server to send many responses no block
+ - figure out how to reduce serialization/deserialization. notably:
+     - read/write data: store data and seqno together?
+
+ - see if writer not caring about metadata helps perf
+     - and or in-memory hashmap
+
+ - do the SIG_AVOID thing
+ - do all setup before sending back init ok lol 
+ - implement subscriber
+ - implement tests
+ - implement benchmark
 
 
 # Major TODOs:

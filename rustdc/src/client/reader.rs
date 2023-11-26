@@ -8,7 +8,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
 use crate::{
-    client::DCError,
+    client::DCClientError,
     shared::crypto::{
         decrypt, hash_data, hash_node, verify_signature, Hash, PublicKey, SymmetricKey,
     },
@@ -42,7 +42,7 @@ impl ReaderConnection {
         server_address: SocketAddr,
         encryption_key: SymmetricKey,
         writer_public_key: PublicKey,
-    ) -> Result<Self, DCError> {
+    ) -> Result<Self, DCClientError> {
         let stream =
             initialize_connection(server_address, InitRequest::Read(datacapsule_name)).await?;
         let (connection_w, connection_r) = stream.split();
@@ -66,7 +66,7 @@ impl ReaderConnection {
         &mut self,
         operations: &[ReaderOperation],
         responses: &mut Vec<ReaderResponse>,
-    ) -> Result<(), DCError> {
+    ) -> Result<(), DCClientError> {
         // You may also be wondering: why not just do all the sends,
         // then all the receives? Why bother with the fancy future join stuff?
         // The answer is TCP backpressure. If we do all the sends without
@@ -91,7 +91,7 @@ impl ReaderConnection {
     async fn send_operations(
         connection_w: &mut SplitSink<Framed<TcpStream, ClientCodec>, Request>,
         operations: &[ReaderOperation],
-    ) -> Result<(), DCError> {
+    ) -> Result<(), DCClientError> {
         for op in operations {
             let req = match op {
                 ReaderOperation::Data(hash) => Request::Read(ReadRequest::Data(*hash)),
@@ -113,17 +113,17 @@ impl ReaderConnection {
         read_state: &mut ReadState,
         operations: &[ReaderOperation],
         responses: &mut Vec<ReaderResponse>,
-    ) -> Result<(), DCError> {
+    ) -> Result<(), DCClientError> {
         for op in operations {
             let resp = match connection_r.next().await {
                 Some(r) => r?,
                 None => {
-                    return Err(DCError::Other("stream ended".to_string()));
+                    return Err(DCClientError::Other("stream ended".to_string()));
                 }
             };
             let resp = match (resp, op) {
                 (Response::Failed, _) => {
-                    return Err(DCError::ServerError("server failed".into()));
+                    return Err(DCClientError::ServerError("server failed".into()));
                 }
                 (Response::ReadData(data), ReaderOperation::Data(hash)) => {
                     // DATA RESPONSE: where all the magic happens
@@ -135,7 +135,7 @@ impl ReaderConnection {
                             sequence_number: decrypted.0,
                         }
                     } else {
-                        return Err(DCError::Cryptographic("invalid hash".into()));
+                        return Err(DCClientError::Cryptographic("invalid hash".into()));
                     }
                 }
                 (Response::ReadProof { root, nodes }, ReaderOperation::Prove(hash)) => {
@@ -148,7 +148,7 @@ impl ReaderConnection {
                     if let Some(s) = root {
                         match verify_signature(&s, writer_public_key) {
                             Some(h) => read_state.add_signed_hash(&h),
-                            None => return Err(DCError::Cryptographic("invalid signature".into())),
+                            None => return Err(DCClientError::Cryptographic("invalid signature".into())),
                         }
                     }
                     // for each node in the chain, check it for validity and add it to the cache
@@ -156,17 +156,17 @@ impl ReaderConnection {
                         if read_state.contains(&hash_node(&b)) {
                             read_state.add_proven_node(&b);
                         } else {
-                            return Err(DCError::Cryptographic("node not proven".into()));
+                            return Err(DCClientError::Cryptographic("node not proven".into()));
                         }
                     }
 
                     // check that the hash that we want to prove is in the cache
                     if !read_state.contains(hash) {
-                        return Err(DCError::Cryptographic("hash not proven".into()));
+                        return Err(DCClientError::Cryptographic("hash not proven".into()));
                     }
                     ReaderResponse::ValidProof
                 }
-                _ => return Err(DCError::ServerError("mismatched response".into())),
+                _ => return Err(DCClientError::ServerError("mismatched response".into())),
             };
             responses.push(resp);
         }

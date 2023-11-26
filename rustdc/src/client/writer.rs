@@ -8,7 +8,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
 use crate::{
-    client::DCError,
+    client::DCClientError,
     shared::crypto::{
         encrypt, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, SymmetricKey,
     },
@@ -44,7 +44,7 @@ impl WriterConnection {
         signing_key: PrivateKey,
         last_commit_hash: Hash,
         next_sequence_number: u64,
-    ) -> Result<Self, DCError> {
+    ) -> Result<Self, DCClientError> {
         let stream =
             initialize_connection(server_address, InitRequest::Write(datacapsule_name)).await?;
         let (connection_w, connection_r) = stream.split();
@@ -82,7 +82,7 @@ impl WriterConnection {
     pub async fn do_operations<'a>(
         &mut self,
         operations: &[WriterOperation<'a>],
-    ) -> Result<(), DCError> {
+    ) -> Result<(), DCClientError> {
         // Some implementation details:
         // in addition to the connection and encryption stuff, we have the
         // following state variables to worry about:
@@ -132,7 +132,7 @@ impl WriterConnection {
                 self.last_commit_hash = hashes1[a].0;
                 self.next_commit_start_number = hashes1[a].1;
             } else {
-                res = Err(DCError::Cryptographic("mismatched hashes".to_string()));
+                res = Err(DCClientError::Cryptographic("mismatched hashes".to_string()));
             }
         }
         // throw away transient variables in case of an error
@@ -152,7 +152,7 @@ impl WriterConnection {
         mut last_commit_hash: Hash,
         operations: &[WriterOperation<'a>],
         finished: &mut Vec<(Hash, u64)>,
-    ) -> Result<(), DCError> {
+    ) -> Result<(), DCClientError> {
         for op in operations {
             let req = match op {
                 WriterOperation::Record(data) => {
@@ -196,24 +196,24 @@ impl WriterConnection {
         server_public_key: &PublicKey,
         operations: &[WriterOperation<'a>],
         finished: &mut Vec<Hash>,
-    ) -> Result<(), DCError> {
+    ) -> Result<(), DCClientError> {
         for op in operations {
             let resp = match connection_r.next().await {
                 Some(r) => r?,
-                None => return Err(DCError::Other("stream ended".to_string())),
+                None => return Err(DCClientError::Other("stream ended".to_string())),
             };
             match (resp, op) {
                 (Response::Failed, _) => {
-                    return Err(DCError::ServerError("server failure".into()));
+                    return Err(DCClientError::ServerError("server failure".into()));
                 }
                 (Response::WriteData, WriterOperation::Record(_)) => {}
                 (Response::WriteCommit(signed_hash), WriterOperation::Commit) => {
                     match verify_signature(&signed_hash, server_public_key) {
                         Some(h) => finished.push(h),
-                        None => return Err(DCError::Cryptographic("bad signature".into())),
+                        None => return Err(DCClientError::Cryptographic("bad signature".into())),
                     }
                 }
-                _ => return Err(DCError::ServerError("mismatched response".into())),
+                _ => return Err(DCClientError::ServerError("mismatched response".into())),
             }
         }
         Ok(())

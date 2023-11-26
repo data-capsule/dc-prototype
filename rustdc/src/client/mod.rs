@@ -12,7 +12,7 @@ use tokio_util::codec::Framed;
 
 use crate::shared::request::{ClientCodec, InitRequest, Request, Response};
 
-pub enum DCError {
+pub enum DCClientError {
     ServerError(String),
     Cryptographic(String),
     OpenSSL(ErrorStack),
@@ -20,13 +20,13 @@ pub enum DCError {
     Other(String),
 }
 
-impl From<io::Error> for DCError {
+impl From<io::Error> for DCClientError {
     fn from(value: io::Error) -> Self {
         Self::IO(value)
     }
 }
 
-impl From<ErrorStack> for DCError {
+impl From<ErrorStack> for DCClientError {
     fn from(value: ErrorStack) -> Self {
         Self::OpenSSL(value)
     }
@@ -35,16 +35,16 @@ impl From<ErrorStack> for DCError {
 async fn initialize_connection(
     server_address: SocketAddr,
     req: InitRequest,
-) -> Result<Framed<TcpStream, ClientCodec>, DCError> {
+) -> Result<Framed<TcpStream, ClientCodec>, DCClientError> {
     let tt = TcpStream::connect(server_address).await?;
     let mut stream = Framed::new(tt, ClientCodec::new());
     stream.send(Request::Init(req)).await?;
     let res = match stream.next().await {
         Some(r) => r?,
-        None => return Err(DCError::Other("stream ended".into())),
+        None => return Err(DCClientError::Other("stream ended".into())),
     };
     match res {
         Response::Init => Ok(stream),
-        _ => Err(DCError::ServerError("bad init".into())),
+        _ => Err(DCClientError::ServerError("bad init".into())),
     }
 }

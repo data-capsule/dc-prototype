@@ -1,10 +1,9 @@
-use openssl::bn::{BigNum, BigNumContext};
-use openssl::ec::{EcGroup, EcKey, PointConversionForm};
+use openssl::bn::BigNumContext;
+use openssl::ec::{EcGroup, EcKey};
 use openssl::ecdsa::EcdsaSig;
 use openssl::error::ErrorStack;
 use openssl::hash::{DigestBytes, Hasher, MessageDigest};
 use openssl::nid::Nid;
-use openssl::pkey::Public;
 use std::time::Instant;
 
 fn main() -> Result<(), ErrorStack> {
@@ -13,41 +12,53 @@ fn main() -> Result<(), ErrorStack> {
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?; // NIST P-256 curve
     let key = EcKey::generate(&group)?;
 
-    let mut ctx = BigNumContext::new()?;
+    let _ctx = BigNumContext::new()?;
 
-    let public_key =
-        &key.public_key()
-            .to_bytes(&group, PointConversionForm::COMPRESSED, &mut ctx)?;
+    //let public_key =
+    //    &key.public_key()
+    //        .to_bytes(&group, PointConversionForm::COMPRESSED, &mut ctx)?;
 
-    let private_key = &key.private_key().to_vec();
+    //let private_key = &key.private_key().to_vec();
 
-    let _pub_key_recon = EcKey::<Public>::public_key_from_der(public_key)?;
-    let _c1 = BigNum::from_slice(private_key)?;
+    //let _pub_key_recon = EcKey::<Public>::public_key_from_der(public_key)?;
+    //let _c1 = BigNum::from_slice(private_key)?;
     // let priv_key_recon = EcKey::<Private>::from_private_components(&group, &(), 3)?;
 
-    let private_key = key.private_key().to_vec();
+    //let private_key = key.private_key().to_vec();
 
     println!("{:x?}", key);
-    println!("{:x?}", public_key);
-    println!("{:x?}", private_key);
+    //println!("{:x?}", public_key);
+    //println!("{:x?}", private_key);
 
     {
         let now = Instant::now();
 
-        let sig = EcdsaSig::sign(b"I like cheese and bread and butter", &key)?;
+        let sig = EcdsaSig::sign(b"oerivjeorijergiojerogijergioEEEE", &key)?;
 
         let elapsed = now.elapsed();
         println!("Elapsed: {:?}", elapsed);
 
-        let dd = sig.to_der()?;
-        let cc = EcdsaSig::from_der(&dd)?;
-        println!("der: {:?}", dd);
-        println!("der: {:?}", dd.len());
-        println!("cc: {:?}", cc.to_der()?);
+        let now = Instant::now();
+
+        let _cheese = sig.verify(b"oerivjeorijergiojerogijergioEEEE", &key)?;
+
+        let elapsed = now.elapsed();
+        println!("Elapsed: {:?}", elapsed);
+
+        println!("{:?}", sig.to_der()?.len());
+    }
+
+    {
+        let now = Instant::now();
+
+        let sig = EcdsaSig::sign(b"oerivjeorijergiojerogijergiocodp", &key)?;
+
+        let elapsed = now.elapsed();
+        println!("Elapsed: {:?}", elapsed);
 
         let now = Instant::now();
 
-        let _cheese = sig.verify(b"I like cheese and bread and butter", &key)?;
+        let _cheese = sig.verify(b"oerivjeorijergiojerogijergiocodp", &key)?;
 
         let elapsed = now.elapsed();
         println!("Elapsed: {:?}", elapsed);
