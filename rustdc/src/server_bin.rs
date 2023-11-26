@@ -15,7 +15,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let args: Vec<String> = env::args().collect();
     let (addr, db_file, pk_file) = match args.len() {
-        1 => ("127.0.0.1:6142".into(), "my_db".into(), "my_pk".into()),
+        1 => (
+            "127.0.0.1:6142".into(),
+            "env/my_db".into(),
+            "env/server_private.pem".into(),
+        ),
         4 => (args[1].clone(), args[2].clone(), args[3].clone()),
         _ => {
             println!("3 arguments required: addr, db, pk");

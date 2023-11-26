@@ -5,7 +5,7 @@ use sled::Db;
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
-use crate::shared::crypto::{get_hash_no_verify, Hash};
+use crate::shared::crypto::Hash;
 use crate::shared::readstate::ReadState;
 use crate::shared::request::{ReadRequest, Request, Response, ServerCodec};
 
@@ -91,7 +91,7 @@ fn build_proof(
         nodes.push(parent_node.children);
         if let Some(s) = parent_node.signature {
             if !read_state.contains(&parent) {
-                root = Some(s);
+                root = Some((s, parent));
             }
             break;
         };
@@ -106,8 +106,8 @@ fn build_proof(
 
     // add proof to read_state the same way the client does
     nodes.reverse();
-    if let Some(s) = &root {
-        read_state.add_signed_hash(&get_hash_no_verify(s));
+    if let Some((_, h)) = &root {
+        read_state.add_signed_hash(h);
     }
     for n in &nodes {
         read_state.add_proven_node(n);

@@ -2,7 +2,7 @@ use postcard::{from_bytes, to_stdvec};
 use serde::{Deserialize, Serialize};
 use sled::{Db, Error, IVec, Tree};
 
-use crate::shared::crypto::{DataCapsule, Hash, HashNode, SignedHash};
+use crate::shared::crypto::{DataCapsule, Hash, HashNode, Signature};
 
 fn open_tree(db: &Db, prefix: u8, dc_name: &Hash) -> Result<Tree, Error> {
     let mut name = [0; 40]; // multiple of 8 for good luck
@@ -97,7 +97,7 @@ impl RecordStorage {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StoredNode {
     pub parent: Option<Hash>,
-    pub signature: Option<SignedHash>,
+    pub signature: Option<Signature>,
     pub children: HashNode,
 }
 

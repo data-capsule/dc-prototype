@@ -26,18 +26,14 @@ pub type Hash = [u8; 32];
 pub type HashNode = [Hash; FANOUT];
 pub const NULL_HASH: Hash = [0; 32];
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SignedHash {
-    signature: Vec<u8>,
-    hash: Hash,
-}
+pub type Signature = Vec<u8>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DataCapsule {
     pub creator_pub_key: Vec<u8>,
     pub writer_pub_key: Vec<u8>,
     pub description: String,
-    pub signature: SignedHash,
+    pub signature: Signature,
 }
 
 pub fn serialize_pubkey(key: &PublicKey) -> Vec<u8> {
@@ -145,28 +141,16 @@ pub fn decrypt(data: &[u8], key: &SymmetricKey) -> (u64, Vec<u8>) {
 /*
 TODO: this method is ugly. make return result
 */
-pub fn sign(hash: &Hash, key: &PrivateKey) -> SignedHash {
+pub fn sign(hash: &Hash, key: &PrivateKey) -> Signature {
     let sig = EcdsaSig::sign(hash, key).expect("sign");
-    let signature = sig.to_der().expect("sign");
-    SignedHash {
-        signature,
-        hash: *hash,
-    }
+    sig.to_der().expect("sign")
 }
 
 /*
 TODO: this method is ugly. make return result
 */
 /// Verifies the signature. If the signature is valid, returns the hash that was signed.
-pub fn verify_signature(signed_hash: &SignedHash, key: &PublicKey) -> Option<Hash> {
-    let sig = EcdsaSig::from_der(&signed_hash.signature).expect("verify");
-    if sig.verify(&signed_hash.hash, key).expect("verify") {
-        Some(signed_hash.hash)
-    } else {
-        None
-    }
-}
-
-pub fn get_hash_no_verify(signed_hash: &SignedHash) -> Hash {
-    signed_hash.hash
+pub fn verify_signature(signature: &Signature, hash: &Hash, key: &PublicKey) -> bool {
+    let sig = EcdsaSig::from_der(signature).expect("verify");
+    sig.verify(hash, key).expect("verify")
 }

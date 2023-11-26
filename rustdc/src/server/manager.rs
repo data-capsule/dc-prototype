@@ -42,10 +42,7 @@ pub async fn process_manager(
                 let hash =
                     hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description);
                 let creator_pk = deserialize_pubkey(&dc.creator_pub_key);
-                let good = match verify_signature(&dc.signature, &creator_pk) {
-                    Some(h) => h == hash,
-                    None => false,
-                };
+                let good = verify_signature(&dc.signature, &hash, &creator_pk);
                 let r = if good {
                     match ms.store(&hash, &dc) {
                         Ok(()) => Response::ManageCreate(sign(&hash, signing_key)),

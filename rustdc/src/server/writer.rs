@@ -6,7 +6,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
 use crate::shared::crypto::{
-    deserialize_pubkey, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, SignedHash,
+    deserialize_pubkey, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, Signature,
 };
 use crate::shared::merkle::merkle_tree_storage;
 use crate::shared::request::{Request, Response, ServerCodec, WriteRequest};
@@ -133,13 +133,12 @@ fn handle_commit(
     uncommitted_hashes: &[Hash],
     uncommitted_seqnos: &[u64],
     additional_hash: &Hash,
-    client_signature: &SignedHash,
-) -> Option<SignedHash> {
+    client_signature: &Signature,
+) -> Option<Signature> {
     let (rbs, tns, root) =
         merkle_tree_storage(uncommitted_hashes, uncommitted_seqnos, additional_hash);
 
-    let rcvd_hash = verify_signature(client_signature, writer_pk)?;
-    if root != rcvd_hash {
+    if !verify_signature(client_signature, &root, writer_pk) {
         return None;
     }
 

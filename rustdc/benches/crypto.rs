@@ -1,8 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use openssl::{hash::{Hasher, MessageDigest}, rand::rand_bytes, symm::{Crypter, Mode, Cipher}, ecdsa::EcdsaSig, ec::{EcKey, EcGroup}, pkey::Private, nid::Nid};
-
-
-
+use openssl::{
+    ec::{EcGroup, EcKey},
+    ecdsa::EcdsaSig,
+    hash::{Hasher, MessageDigest},
+    nid::Nid,
+    pkey::Private,
+    rand::rand_bytes,
+    symm::{Cipher, Crypter, Mode},
+};
 
 type Hash = [u8; 32];
 type SymmetricKey = [u8; 16];
@@ -33,7 +38,6 @@ fn encrypt(seqno: u64, data: &[u8], key: &SymmetricKey) -> Vec<u8> {
     result.truncate(count);
     result
 }
-
 
 fn decrypt(data: &[u8], key: &SymmetricKey) -> (u64, Vec<u8>) {
     if data.len() < 8 + 16 {
@@ -66,8 +70,6 @@ pub fn verify_signature(sig: &[u8], hash: &Hash, key: &EcKey<Private>) -> bool {
     sig.verify(hash, key).expect("verify")
 }
 
-
-
 pub fn criterion_benchmark(c: &mut Criterion) {
     let small = b"12345678123456781234567812345678".repeat(4); // 128 B
     let large = b"3141592653589793".repeat(1000); // 16 kB
@@ -76,22 +78,33 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("small hash", |b| b.iter(|| hash(black_box(&small))));
     c.bench_function("large hash", |b| b.iter(|| hash(black_box(&large))));
 
-    c.bench_function("small encrypt", |b| b.iter(|| encrypt(black_box(123), black_box(&small), black_box(key))));
-    c.bench_function("large encrypt", |b| b.iter(|| encrypt(black_box(123), black_box(&large), black_box(key))));
+    c.bench_function("small encrypt", |b| {
+        b.iter(|| encrypt(black_box(123), black_box(&small), black_box(key)))
+    });
+    c.bench_function("large encrypt", |b| {
+        b.iter(|| encrypt(black_box(123), black_box(&large), black_box(key)))
+    });
 
     let encrypted_small = encrypt(123, &small, key);
     let encrypted_large = encrypt(123, &large, key);
 
-    c.bench_function("small decrypt", |b| b.iter(|| decrypt(black_box(&encrypted_small), black_box(&key))));
-    c.bench_function("large decrypt", |b| b.iter(|| decrypt(black_box(&encrypted_large), black_box(&key))));
+    c.bench_function("small decrypt", |b| {
+        b.iter(|| decrypt(black_box(&encrypted_small), black_box(&key)))
+    });
+    c.bench_function("large decrypt", |b| {
+        b.iter(|| decrypt(black_box(&encrypted_large), black_box(&key)))
+    });
 
     let hash = b"oerivjeorijergiojerogijergiocodp";
     let key = EcKey::generate(&EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap()).unwrap();
     let sig = sign(hash, &key);
 
-    c.bench_function("sign", |b| b.iter(|| sign(black_box(hash), black_box(&key))));
-    c.bench_function("verify", |b| b.iter(|| verify_signature(black_box(&sig), black_box(hash), black_box(&key))));
-
+    c.bench_function("sign", |b| {
+        b.iter(|| sign(black_box(hash), black_box(&key)))
+    });
+    c.bench_function("verify", |b| {
+        b.iter(|| verify_signature(black_box(&sig), black_box(hash), black_box(&key)))
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);

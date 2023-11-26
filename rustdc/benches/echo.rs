@@ -1,6 +1,8 @@
+use std::{error::Error, net::SocketAddr};
 
-
-
+use futures::{future, SinkExt, StreamExt};
+use tokio::{io, net::TcpStream};
+use tokio_util::codec::{BytesCodec, Framed, FramedRead, FramedWrite};
 
 async fn echo(b: &[u8]) -> Result<(), Box<dyn Error>> {
     // Parse what address we're going to connect to
@@ -22,9 +24,8 @@ async fn echo(b: &[u8]) -> Result<(), Box<dyn Error>> {
 }
 
 async fn echo_many(b: &[u8], num: usize) -> Result<(), Box<dyn Error>> {
-
+    Ok(())
 }
-
 
 fn main() {
     println!("This benchmark hasn't been written yet");

@@ -5,7 +5,9 @@ use postcard::{from_bytes, to_stdvec};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::shared::crypto::{DataCapsule, Hash, HashNode, SignedHash};
+use crate::shared::crypto::{DataCapsule, Hash, HashNode};
+
+use super::crypto::Signature;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
@@ -18,17 +20,17 @@ pub enum Request {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    Init,                     // successful initialization
-    ManageCreate(SignedHash), // hash of created datacapsule
+    Init,                    // successful initialization
+    ManageCreate(Signature), // sig of hash of created datacapsule
     ManageRead(DataCapsule),
     ReadData(Vec<u8>), // encrypted data, includes seqno
     ReadProof {
-        root: Option<SignedHash>,
+        root: Option<(Signature, Hash)>,
         nodes: Vec<HashNode>,
     },
     ReadSeed,
     WriteData,
-    WriteCommit(SignedHash),
+    WriteCommit(Signature),
     SubscribeNum(u64),   // last_num, num, wait_after
     SubscribeName(Hash), // name
     Failed,              // if any operation could not complete
@@ -60,7 +62,7 @@ pub enum WriteRequest {
     Data(Vec<u8>), // encrypted data, includes seqno
     Commit {
         additional_hash: Hash,
-        signature: SignedHash,
+        signature: Signature,
     },
 }
 

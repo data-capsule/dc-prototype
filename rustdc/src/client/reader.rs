@@ -34,6 +34,7 @@ pub enum ReaderOperation {
 pub enum ReaderResponse {
     Data { data: Vec<u8>, sequence_number: u64 },
     ValidProof,
+    ServerFailure,
 }
 
 impl ReaderConnection {
@@ -122,9 +123,7 @@ impl ReaderConnection {
                 }
             };
             let resp = match (resp, op) {
-                (Response::Failed, _) => {
-                    return Err(DCClientError::ServerError("server failed".into()));
-                }
+                (Response::Failed, _) => ReaderResponse::ServerFailure,
                 (Response::ReadData(data), ReaderOperation::Data(hash)) => {
                     // DATA RESPONSE: where all the magic happens
                     // checks that the hash of the data is correct, then restures the data
@@ -146,9 +145,8 @@ impl ReaderConnection {
 
                     // if the root is provided, check it for validity and add it to the cache
                     if let Some(s) = root {
-                        match verify_signature(&s, writer_public_key) {
-                            Some(h) => read_state.add_signed_hash(&h),
-                            None => return Err(DCClientError::Cryptographic("invalid signature".into())),
+                        if !verify_signature(&s.0, &s.1, writer_public_key) {
+                            return Err(DCClientError::Cryptographic("invalid signature".into()));
                         }
                     }
                     // for each node in the chain, check it for validity and add it to the cache

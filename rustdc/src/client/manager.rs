@@ -51,16 +51,13 @@ impl ManagerConnection {
             }
         };
         match resp {
-            Response::ManageCreate(s) => match verify_signature(&s, server_pub_key) {
-                Some(h) => {
-                    if h != meta_hash {
-                        Err(DCClientError::Cryptographic("mismatched hashes".into()))
-                    } else {
-                        Ok(())
-                    }
+            Response::ManageCreate(s) => {
+                if verify_signature(&s, &meta_hash, server_pub_key) {
+                    Ok(())
+                } else {
+                    Err(DCClientError::Cryptographic("bad signature".into()))
                 }
-                None => Err(DCClientError::Cryptographic("bad signature".into())),
-            },
+            }
             Response::Failed => Err(DCClientError::ServerError("server failed".into())),
             _ => Err(DCClientError::ServerError("mismatched response".into())),
         }

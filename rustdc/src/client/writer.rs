@@ -4,7 +4,10 @@ use futures::{
     SinkExt, StreamExt,
 };
 use std::net::SocketAddr;
-use tokio::net::TcpStream;
+use tokio::{
+    net::TcpStream,
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+};
 use tokio_util::codec::Framed;
 
 use crate::{
@@ -19,15 +22,25 @@ use crate::{
 use super::initialize_connection;
 
 pub struct WriterConnection {
+    send_half: SendHalf,
+    receive_half: ReceiveHalf,
+}
+
+struct SendHalf {
     connection_w: SplitSink<Framed<TcpStream, ClientCodec>, Request>,
-    connection_r: SplitStream<Framed<TcpStream, ClientCodec>>,
+    inner_w: UnboundedSender<(bool, Hash)>,
     encryption_key: SymmetricKey,
     signing_key: PrivateKey,
-    server_public_key: PublicKey,
-    last_commit_hash: Hash,
-    next_commit_start_number: u64,
     next_sequence_number: u64,
     uncommitted_hashes: Vec<Hash>,
+}
+
+struct ReceiveHalf {
+    connection_r: SplitStream<Framed<TcpStream, ClientCodec>>,
+    inner_r: UnboundedReceiver<(bool, Hash)>,
+    server_public_key: PublicKey,
+    next_commit_start_number: u64,
+    last_commit_hash: Hash,
 }
 
 pub enum WriterOperation<'a> {
@@ -43,21 +56,28 @@ impl WriterConnection {
         encryption_key: SymmetricKey,
         signing_key: PrivateKey,
         last_commit_hash: Hash,
-        next_sequence_number: u64,
+        next_commit_start_number: u64,
     ) -> Result<Self, DCClientError> {
         let stream =
             initialize_connection(server_address, InitRequest::Write(datacapsule_name)).await?;
         let (connection_w, connection_r) = stream.split();
+        let (inner_w, inner_r) = mpsc::unbounded_channel::<(bool, Hash)>();
         Ok(Self {
-            connection_w,
-            connection_r,
-            encryption_key,
-            signing_key,
-            server_public_key,
-            last_commit_hash,
-            next_commit_start_number: next_sequence_number,
-            next_sequence_number,
-            uncommitted_hashes: Vec::new(),
+            send_half: SendHalf {
+                connection_w,
+                inner_w,
+                encryption_key,
+                signing_key,
+                next_sequence_number: next_commit_start_number,
+                uncommitted_hashes: Vec::new(),
+            },
+            receive_half: ReceiveHalf {
+                connection_r,
+                inner_r,
+                server_public_key,
+                next_commit_start_number,
+                last_commit_hash,
+            },
         })
     }
 
@@ -68,12 +88,16 @@ impl WriterConnection {
     /// numbers 40..47 inclusive, and root hash ABCD, this would return
     /// (48, ABCD).
     pub fn get_checkpoint(&self) -> (u64, Hash) {
-        (self.next_commit_start_number, self.last_commit_hash)
+        (
+            self.receive_half.next_commit_start_number,
+            self.receive_half.last_commit_hash,
+        )
     }
 
     /// Does all the operations, in order. Concurrently sends and receives on
     /// the underlying TCP connection so that it does not have to wait for
-    /// round trips.
+    /// round trips. Fills responses with a hash for each successful operation
+    /// (for records, the hash of the record. For commits, the commit's root hash).
     ///
     /// In case of failure, the `get_checkpoint` method can be used to figure
     /// out the last successful commit. A new connection should then be made,
@@ -82,6 +106,7 @@ impl WriterConnection {
     pub async fn do_operations<'a>(
         &mut self,
         operations: &[WriterOperation<'a>],
+        responses: &mut Vec<Hash>,
     ) -> Result<(), DCClientError> {
         // Some implementation details:
         // in addition to the connection and encryption stuff, we have the
@@ -101,57 +126,35 @@ impl WriterConnection {
         // processing any receives, at some point the server will stop being
         // able to send results back to us, and the connection will close.
 
-        let mut hashes1 = Vec::new();
-        let mut hashes2 = Vec::new();
+        let next_seqno = self.send_half.next_sequence_number;
         let f1 = Self::send_operations(
-            &mut self.connection_w,
-            &self.encryption_key,
-            &self.signing_key,
-            &mut self.uncommitted_hashes,
-            &mut self.next_sequence_number,
-            self.last_commit_hash,
+            &mut self.send_half,
+            self.receive_half.last_commit_hash,
             operations,
-            &mut hashes1,
         );
         let f2 = Self::receive_operations(
-            &mut self.connection_r,
-            &self.server_public_key,
-            operations,
-            &mut hashes2,
+            &mut self.receive_half,
+            next_seqno,
+            operations.len(),
+            responses,
         );
-        let mut res = match future::join(f1, f2).await {
+        let res = match future::join(f1, f2).await {
             (Err(e), _) | (_, Err(e)) => Err(e),
             (Ok(()), Ok(())) => Ok(()),
         };
 
-        // verify that hashes match
-        for a in 0..hashes2.len() {
-            if hashes1[a].0 == hashes2[a] {
-                // if a hash does match, that commit is confirmed
-                // Update checkpoint accordingly
-                self.last_commit_hash = hashes1[a].0;
-                self.next_commit_start_number = hashes1[a].1;
-            } else {
-                res = Err(DCClientError::Cryptographic("mismatched hashes".to_string()));
-            }
-        }
-        // throw away transient variables in case of an error
         if res.is_err() {
-            self.next_sequence_number = self.next_commit_start_number;
-            self.uncommitted_hashes.clear();
+            // throw away transient variables
+            self.send_half.next_sequence_number = self.receive_half.next_commit_start_number;
+            self.send_half.uncommitted_hashes.clear();
         }
         res
     }
 
     async fn send_operations<'a>(
-        connection_w: &mut SplitSink<Framed<TcpStream, ClientCodec>, Request>,
-        encryption_key: &SymmetricKey,
-        signing_key: &PrivateKey,
-        uncommitted_hashes: &mut Vec<Hash>,
-        next_sequence_number: &mut u64,
+        half: &mut SendHalf,
         mut last_commit_hash: Hash,
         operations: &[WriterOperation<'a>],
-        finished: &mut Vec<(Hash, u64)>,
     ) -> Result<(), DCClientError> {
         for op in operations {
             let req = match op {
@@ -159,10 +162,15 @@ impl WriterConnection {
                     // RECORD REQUEST: where all the magic happens
                     // encrypt the data, send it with a sequence number
                     // add the hash of seqno + encrypted data to uncommitted hashes
-                    let encrypted_data = encrypt(*next_sequence_number, data, encryption_key);
-                    uncommitted_hashes.push(hash_data(&encrypted_data));
+                    let encrypted_data =
+                        encrypt(half.next_sequence_number, data, &half.encryption_key);
+                    let hash = hash_data(&encrypted_data);
+                    half.uncommitted_hashes.push(hash);
+                    if half.inner_w.send((false, hash)).is_err() {
+                        return Err(DCClientError::Other("mpsc".to_string()));
+                    }
                     let req = Request::Write(WriteRequest::Data(encrypted_data));
-                    *next_sequence_number += 1;
+                    half.next_sequence_number += 1;
                     req
                 }
                 WriterOperation::Commit => {
@@ -170,47 +178,61 @@ impl WriterConnection {
                     // build a merkle tree, clear the uncommitted hashes,
                     // send a commit request, update the last written hash
                     // updated finished with the root hash
-                    let root_hash = merkle_tree_root(uncommitted_hashes, &last_commit_hash);
-                    let signature = sign(&root_hash, signing_key);
+                    let root_hash = merkle_tree_root(&half.uncommitted_hashes, &last_commit_hash);
+                    let signature = sign(&root_hash, &half.signing_key);
                     let req = Request::Write(WriteRequest::Commit {
                         additional_hash: last_commit_hash,
                         signature,
                     });
                     last_commit_hash = root_hash;
-                    uncommitted_hashes.clear();
-                    finished.push((root_hash, *next_sequence_number));
+                    half.uncommitted_hashes.clear();
+                    if half.inner_w.send((true, root_hash)).is_err() {
+                        return Err(DCClientError::Other("mpsc".to_string()));
+                    }
                     req
                 }
             };
             // NOTE: should not flush
             // we want the possibility of multiple messages per TCP frame
-            connection_w.feed(req).await?;
+            half.connection_w.feed(req).await?;
         }
         // make sure all the requests for this batch actually get sent
-        connection_w.flush().await?;
+        half.connection_w.flush().await?;
         Ok(())
     }
 
     async fn receive_operations<'a>(
-        connection_r: &mut SplitStream<Framed<TcpStream, ClientCodec>>,
-        server_public_key: &PublicKey,
-        operations: &[WriterOperation<'a>],
-        finished: &mut Vec<Hash>,
+        half: &mut ReceiveHalf,
+        mut next_sequence_number: u64,
+        num_recvs: usize,
+        responses: &mut Vec<Hash>,
     ) -> Result<(), DCClientError> {
-        for op in operations {
-            let resp = match connection_r.next().await {
+        for _ in 0..num_recvs {
+            let (is_commit, expected_hash) = match half.inner_r.recv().await {
+                Some(p) => p,
+                None => return Err(DCClientError::Other("mpsc".to_string())),
+            };
+            let resp = match half.connection_r.next().await {
                 Some(r) => r?,
                 None => return Err(DCClientError::Other("stream ended".to_string())),
             };
-            match (resp, op) {
+            match (resp, is_commit) {
                 (Response::Failed, _) => {
                     return Err(DCClientError::ServerError("server failure".into()));
                 }
-                (Response::WriteData, WriterOperation::Record(_)) => {}
-                (Response::WriteCommit(signed_hash), WriterOperation::Commit) => {
-                    match verify_signature(&signed_hash, server_public_key) {
-                        Some(h) => finished.push(h),
-                        None => return Err(DCClientError::Cryptographic("bad signature".into())),
+                (Response::WriteData, false) => {
+                    responses.push(expected_hash);
+                    next_sequence_number += 1;
+                }
+                (Response::WriteCommit(signature), true) => {
+                    if verify_signature(&signature, &expected_hash, &half.server_public_key) {
+                        // commit is confirmed! woohoo
+                        responses.push(expected_hash);
+                        // set checkpoint variables
+                        half.last_commit_hash = expected_hash;
+                        half.next_commit_start_number = next_sequence_number;
+                    } else {
+                        return Err(DCClientError::Cryptographic("bad signature".into()));
                     }
                 }
                 _ => return Err(DCClientError::ServerError("mismatched response".into())),
