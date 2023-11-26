@@ -1,4 +1,4 @@
-use crate::{
+use crate::shared::{
     config::{CACHE_SIZE, FANOUT},
     crypto::{Hash, HashNode, NULL_HASH},
 };
@@ -29,10 +29,6 @@ impl ReadState {
             last_signed_hash: NULL_HASH,
             last_proven_node: [NULL_HASH; FANOUT],
         }
-    }
-
-    pub fn clear(&mut self) {
-        *self = Self::new();
     }
 
     pub fn contains(&self, hash: &Hash) -> bool {

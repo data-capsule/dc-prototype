@@ -5,12 +5,12 @@ use postcard::{from_bytes, to_stdvec};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::crypto::{Hash, HashNode, SignedHash};
+use crate::shared::crypto::{DataCapsule, Hash, HashNode, SignedHash};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
     Init(InitRequest),
-    Create(CreateRequest),
+    Manage(ManageRequest),
     Read(ReadRequest),
     Write(WriteRequest),
     Subscribe(SubscribeRequest),
@@ -18,9 +18,10 @@ pub enum Request {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    Init,               // successful initialization
-    Create(SignedHash), // hash of created datacapsule
-    ReadData(Vec<u8>),  // encrypted data, includes seqno
+    Init,                     // successful initialization
+    ManageCreate(SignedHash), // hash of created datacapsule
+    ManageRead(DataCapsule),
+    ReadData(Vec<u8>), // encrypted data, includes seqno
     ReadProof {
         root: Option<SignedHash>,
         nodes: Vec<HashNode>,
@@ -35,18 +36,16 @@ pub enum Response {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum InitRequest {
-    Create,
+    Manage,
     Read(Hash),
     Write(Hash),
     Subscribe(Hash),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct CreateRequest {
-    creator_pub_key: Vec<u8>,
-    writer_pub_key: Vec<u8>,
-    description: String,
-    signature: SignedHash,
+pub enum ManageRequest {
+    Create(DataCapsule), // create a datacapsule
+    Read(Hash),          // read a datacapsule
 }
 
 #[derive(Serialize, Deserialize, Debug)]

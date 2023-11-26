@@ -1,5 +1,5 @@
-use crate::config::FANOUT;
-use crate::crypto::{hash_node, Hash, HashNode, NULL_HASH};
+use crate::shared::config::FANOUT;
+use crate::shared::crypto::{hash_node, Hash, HashNode, NULL_HASH};
 
 pub struct TreeNode {
     pub name: Hash,

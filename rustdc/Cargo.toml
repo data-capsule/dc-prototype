@@ -6,12 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "clientlib"
-path = "src/client.rs"
+name = "datacapsule"
+path = "src/lib.rs"
+
 
 [[bin]]
-name = "server"
-path = "src/server.rs"
+name = "server_bin"
+path = "src/server_bin.rs"
 
 [[bin]]
 name = "messaround"

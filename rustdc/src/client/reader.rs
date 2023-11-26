@@ -8,11 +8,15 @@ use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
 use crate::{
-    client_internal::DCError,
-    crypto::{decrypt, hash_data, hash_node, verify_signature, Hash, PublicKey, SymmetricKey},
-    readstate::ReadState,
-    request::{ClientCodec, InitRequest, ReadRequest, Request, Response},
+    client::DCError,
+    shared::crypto::{
+        decrypt, hash_data, hash_node, verify_signature, Hash, PublicKey, SymmetricKey,
+    },
+    shared::readstate::ReadState,
+    shared::request::{ClientCodec, InitRequest, ReadRequest, Request, Response},
 };
+
+use super::initialize_connection;
 
 pub struct ReaderConnection {
     connection_w: SplitSink<Framed<TcpStream, ClientCodec>, Request>,
@@ -39,24 +43,9 @@ impl ReaderConnection {
         encryption_key: SymmetricKey,
         writer_public_key: PublicKey,
     ) -> Result<Self, DCError> {
-        let tt = TcpStream::connect(server_address).await?;
-        let stream = Framed::new(tt, ClientCodec::new());
-        let (mut connection_w, mut connection_r) = stream.split();
-        connection_w
-            .send(Request::Init(InitRequest::Read(datacapsule_name)))
-            .await?;
-        let res = match connection_r.next().await {
-            Some(x) => x?,
-            None => return Err(DCError::Other("stream ended".to_string())),
-        };
-
-        match res {
-            Response::Init => {}
-            _ => {
-                return Err(DCError::ServerError("bad init".into()));
-            }
-        }
-
+        let stream =
+            initialize_connection(server_address, InitRequest::Read(datacapsule_name)).await?;
+        let (connection_w, connection_r) = stream.split();
         Ok(Self {
             connection_w,
             connection_r,
@@ -78,6 +67,12 @@ impl ReaderConnection {
         operations: &[ReaderOperation],
         responses: &mut Vec<ReaderResponse>,
     ) -> Result<(), DCError> {
+        // You may also be wondering: why not just do all the sends,
+        // then all the receives? Why bother with the fancy future join stuff?
+        // The answer is TCP backpressure. If we do all the sends without
+        // processing any receives, at some point the server will stop being
+        // able to send results back to us, and the connection will close.
+
         let f1 = Self::send_operations(&mut self.connection_w, operations);
         let f2 = Self::receive_operations(
             &mut self.connection_r,

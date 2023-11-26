@@ -8,13 +8,15 @@ use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
 use crate::{
-    client_internal::DCError,
-    crypto::{
+    client::DCError,
+    shared::crypto::{
         encrypt, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, SymmetricKey,
     },
-    merkle::merkle_tree_root,
-    request::{ClientCodec, Request, Response, WriteRequest},
+    shared::merkle::merkle_tree_root,
+    shared::request::{ClientCodec, InitRequest, Request, Response, WriteRequest},
 };
+
+use super::initialize_connection;
 
 pub struct WriterConnection {
     connection_w: SplitSink<Framed<TcpStream, ClientCodec>, Request>,
@@ -43,26 +45,9 @@ impl WriterConnection {
         last_commit_hash: Hash,
         next_sequence_number: u64,
     ) -> Result<Self, DCError> {
-        let tt = TcpStream::connect(server_address).await?;
-        let stream = Framed::new(tt, ClientCodec::new());
-        let (mut connection_w, mut connection_r) = stream.split();
-        connection_w
-            .send(Request::Init(crate::request::InitRequest::Write(
-                datacapsule_name,
-            )))
-            .await?;
-        let res = match connection_r.next().await {
-            Some(x) => x?,
-            None => return Err(DCError::Other("stream ended".to_string())),
-        };
-
-        match res {
-            Response::Init => {}
-            _ => {
-                return Err(DCError::ServerError("bad init".into()));
-            }
-        }
-
+        let stream =
+            initialize_connection(server_address, InitRequest::Write(datacapsule_name)).await?;
+        let (connection_w, connection_r) = stream.split();
         Ok(Self {
             connection_w,
             connection_r,
@@ -109,6 +94,12 @@ impl WriterConnection {
         // errors, these 2 should only reflect fully verified commits
         // The second 2 we don't have to be careful about; if an error
         // happens, those two should be thrown away.
+        //
+        // You may also be wondering: why not just do all the sends,
+        // then all the receives? Why bother with the fancy future join stuff?
+        // The answer is TCP backpressure. If we do all the sends without
+        // processing any receives, at some point the server will stop being
+        // able to send results back to us, and the connection will close.
 
         let mut hashes1 = Vec::new();
         let mut hashes2 = Vec::new();

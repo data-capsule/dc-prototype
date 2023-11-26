@@ -5,11 +5,11 @@ use sled::Db;
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
-use crate::crypto::{
-    self, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, SignedHash,
+use crate::shared::crypto::{
+    deserialize_pubkey, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, SignedHash,
 };
-use crate::merkle::merkle_tree_storage;
-use crate::request::{Request, Response, ServerCodec, WriteRequest};
+use crate::shared::merkle::merkle_tree_storage;
+use crate::shared::request::{Request, Response, ServerCodec, WriteRequest};
 
 use super::storage::{
     DataStorage, MetaStorage, NodeStorage, RecordStorage, SequenceStorage, StoredNode,
@@ -29,7 +29,7 @@ pub async fn process_writer(
     let mut ss = SequenceStorage::new(&db, dc_name)?;
 
     let writer_pk = match MetaStorage::get_writer_pk(&db, dc_name)? {
-        Some(v) => crypto::deserialize_pubkey(v),
+        Some(v) => deserialize_pubkey(&v),
         None => return Err(DCServerError::MissingStorage("writer_pk".into())),
     };
 

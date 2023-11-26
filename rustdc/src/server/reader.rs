@@ -5,18 +5,11 @@ use sled::Db;
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
-use crate::config::SIG_AVOID;
-use crate::crypto::{
-    self, get_hash_no_verify, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey,
-    SignedHash,
-};
-use crate::merkle::merkle_tree_storage;
-use crate::readstate::ReadState;
-use crate::request::{ReadRequest, Request, Response, ServerCodec, WriteRequest};
+use crate::shared::crypto::{get_hash_no_verify, Hash};
+use crate::shared::readstate::ReadState;
+use crate::shared::request::{ReadRequest, Request, Response, ServerCodec};
 
-use super::storage::{
-    DataStorage, MetaStorage, NodeStorage, RecordStorage, SequenceStorage, StoredNode,
-};
+use super::storage::{DataStorage, NodeStorage, RecordStorage};
 use super::DCServerError;
 
 pub async fn process_reader(
@@ -98,7 +91,7 @@ fn build_proof(
         nodes.push(parent_node.children);
         if let Some(s) = parent_node.signature {
             if !read_state.contains(&parent) {
-                root = Some(s.clone());
+                root = Some(s);
             }
             break;
         };

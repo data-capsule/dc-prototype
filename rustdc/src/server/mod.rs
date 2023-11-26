@@ -1,51 +1,60 @@
-mod config;
-mod crypto;
-mod merkle;
-mod readstate;
-mod request;
-mod server_internal;
-use crypto::PrivateKey;
-use request::ServerCodec;
-use server_internal::reader::process_reader;
-use server_internal::writer::process_writer;
-use server_internal::DCServerError;
+use std::{error::Error, net::SocketAddr};
+
+use futures::StreamExt;
 use sled::Db;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
-use tokio::net::{TcpListener, TcpStream};
-use tokio_stream::StreamExt;
+use tokio::{
+    fs::File,
+    io::AsyncReadExt,
+    net::{TcpListener, TcpStream},
+};
 use tokio_util::codec::Framed;
 
-use std::env;
-use std::error::Error;
-use std::net::SocketAddr;
+use crate::shared::{
+    crypto::{deserialize_private_key_from_pem, PrivateKey},
+    request::{self, ServerCodec},
+};
 
-use crate::crypto::deserialize_private_key_from_pem;
+use self::{manager::process_manager, reader::process_reader, writer::process_writer};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
-    // Configure a `tracing` subscriber that logs traces emitted by the chat
-    // server.
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("server=info".parse()?))
-        .with_span_events(FmtSpan::FULL)
-        .init();
+mod manager;
+mod reader;
+mod storage;
+mod subscriber;
+mod writer;
 
-    let args: Vec<String> = env::args().collect();
-    let (addr, db_file, pk_file) = match args.len() {
-        1 => ("127.0.0.1:6142".into(), "my_db".into(), "my_pk".into()),
-        4 => (args[1].clone(), args[2].clone(), args[3].clone()),
-        _ => {
-            println!("3 arguments required: addr, db, pk");
-            return Ok(());
-        }
-    };
-
-    run_server(addr, db_file, pk_file).await
+#[derive(Debug)]
+pub enum DCServerError {
+    Cryptographic(String),
+    OpenSSL(openssl::error::ErrorStack),
+    IO(std::io::Error),
+    Storage(sled::Error),
+    MissingStorage(String),
+    Other(String),
 }
 
-async fn run_server(addr: String, db_file: String, pk_file: String) -> Result<(), Box<dyn Error>> {
+impl From<std::io::Error> for DCServerError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IO(value)
+    }
+}
+
+impl From<openssl::error::ErrorStack> for DCServerError {
+    fn from(value: openssl::error::ErrorStack) -> Self {
+        Self::OpenSSL(value)
+    }
+}
+
+impl From<sled::Error> for DCServerError {
+    fn from(value: sled::Error) -> Self {
+        Self::Storage(value)
+    }
+}
+
+pub async fn run_server(
+    addr: String,
+    db_file: String,
+    pk_file: String,
+) -> Result<(), Box<dyn Error>> {
     // Bind a TCP listener to the socket address.
     // Note that this is the Tokio TcpListener, which is fully async.
     let listener = TcpListener::bind(&addr).await?;
@@ -88,7 +97,7 @@ async fn process(
         }
     };
     match init_req {
-        request::InitRequest::Create => todo!(),
+        request::InitRequest::Manage => process_manager(pk, db, framed, addr).await,
         request::InitRequest::Read(dc_name) => process_reader(db, &dc_name, framed, addr).await,
         request::InitRequest::Write(dc_name) => {
             process_writer(pk, db, &dc_name, framed, addr).await

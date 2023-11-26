@@ -10,7 +10,7 @@ use openssl::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::config::FANOUT;
+use crate::shared::config::FANOUT;
 
 // AES-128 encryption key
 pub type SymmetricKey = [u8; 16];
@@ -26,11 +26,18 @@ pub type Hash = [u8; 32];
 pub type HashNode = [Hash; FANOUT];
 pub const NULL_HASH: Hash = [0; 32];
 
-// convenient
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SignedHash {
     signature: Vec<u8>,
     hash: Hash,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DataCapsule {
+    pub creator_pub_key: Vec<u8>,
+    pub writer_pub_key: Vec<u8>,
+    pub description: String,
+    pub signature: SignedHash,
 }
 
 pub fn serialize_pubkey(key: &PublicKey) -> Vec<u8> {
@@ -41,8 +48,8 @@ pub fn serialize_pubkey(key: &PublicKey) -> Vec<u8> {
         .unwrap()
 }
 
-pub fn deserialize_pubkey(key: Vec<u8>) -> PublicKey {
-    EcKey::<Public>::public_key_from_der(&key).unwrap()
+pub fn deserialize_pubkey(key: &[u8]) -> PublicKey {
+    EcKey::<Public>::public_key_from_der(key).unwrap()
 }
 
 pub fn deserialize_private_key_from_pem(pem: &[u8]) -> PrivateKey {

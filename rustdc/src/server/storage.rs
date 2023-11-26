@@ -2,21 +2,13 @@ use postcard::{from_bytes, to_stdvec};
 use serde::{Deserialize, Serialize};
 use sled::{Db, Error, IVec, Tree};
 
-use crate::crypto::{Hash, HashNode, SignedHash};
+use crate::shared::crypto::{DataCapsule, Hash, HashNode, SignedHash};
 
 fn open_tree(db: &Db, prefix: u8, dc_name: &Hash) -> Result<Tree, Error> {
     let mut name = [0; 40]; // multiple of 8 for good luck
     name[0] = prefix;
     name[8..].copy_from_slice(dc_name);
     db.open_tree(name)
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct StoredDataCapsule {
-    creator_pub_key: Vec<u8>,
-    writer_pub_key: Vec<u8>,
-    description: String,
-    creator_signature: SignedHash,
 }
 
 // key: datacapsule hash
@@ -27,13 +19,13 @@ impl MetaStorage {
         Ok(Self(db.open_tree(b"M")?))
     }
 
-    pub fn store(&mut self, dc_name: &Hash, dc: &StoredDataCapsule) -> Result<(), Error> {
+    pub fn store(&mut self, dc_name: &Hash, dc: &DataCapsule) -> Result<(), Error> {
         let data = to_stdvec(dc).expect("postcard"); // TODO TODOOOOOOO handle well
         self.0.insert(dc_name, data)?;
         Ok(())
     }
 
-    pub fn get(&self, dc_name: &Hash) -> Result<Option<StoredDataCapsule>, Error> {
+    pub fn get(&self, dc_name: &Hash) -> Result<Option<DataCapsule>, Error> {
         Ok(match self.0.get(dc_name)? {
             Some(d) => from_bytes(&d).ok(),
             None => None,
