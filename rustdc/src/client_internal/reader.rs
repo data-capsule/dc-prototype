@@ -148,10 +148,9 @@ impl ReaderConnection {
 
                     // if the root is provided, check it for validity and add it to the cache
                     if let Some(s) = root {
-                        if verify_signature(&s, writer_public_key) {
-                            read_state.add_signed_hash(&s.hash);
-                        } else {
-                            return Err(DCError::Cryptographic("invalid signature".into()));
+                        match verify_signature(&s, writer_public_key) {
+                            Some(h) => read_state.add_signed_hash(&h),
+                            None => return Err(DCError::Cryptographic("invalid signature".into())),
                         }
                     }
                     // for each node in the chain, check it for validity and add it to the cache

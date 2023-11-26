@@ -53,7 +53,7 @@ impl ReadState {
     pub fn add_signed_hash(&mut self, hash: &Hash) {
         let old_hash = self.last_signed_hash;
         self.hash_cache[cache_index(&old_hash)] = old_hash;
-        self.last_signed_hash = old_hash;
+        self.last_signed_hash = *hash;
     }
 
     pub fn add_proven_node(&mut self, hashes: &HashNode) {

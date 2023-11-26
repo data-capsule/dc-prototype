@@ -1,10 +1,10 @@
-use openssl::bn::{BigNum, BigNumContext, BigNumRef};
-use openssl::ec::{EcGroup, EcKey, EcPoint, EcPointRef, PointConversionForm};
+use openssl::bn::{BigNum, BigNumContext};
+use openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use openssl::ecdsa::EcdsaSig;
 use openssl::error::ErrorStack;
 use openssl::hash::{DigestBytes, Hasher, MessageDigest};
 use openssl::nid::Nid;
-use openssl::pkey::{Private, Public};
+use openssl::pkey::Public;
 use std::time::Instant;
 
 fn main() -> Result<(), ErrorStack> {
@@ -21,8 +21,8 @@ fn main() -> Result<(), ErrorStack> {
 
     let private_key = &key.private_key().to_vec();
 
-    let pub_key_recon = EcKey::<Public>::public_key_from_der(public_key)?;
-    let c1 = BigNum::from_slice(&private_key)?;
+    let _pub_key_recon = EcKey::<Public>::public_key_from_der(public_key)?;
+    let _c1 = BigNum::from_slice(private_key)?;
     // let priv_key_recon = EcKey::<Private>::from_private_components(&group, &(), 3)?;
 
     let private_key = key.private_key().to_vec();

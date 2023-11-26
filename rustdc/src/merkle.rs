@@ -2,16 +2,16 @@ use crate::config::FANOUT;
 use crate::crypto::{hash_node, Hash, HashNode, NULL_HASH};
 
 pub struct TreeNode {
-    name: Hash,
-    parent: Option<Hash>,
-    signed: bool,
-    children: HashNode,
+    pub name: Hash,
+    pub parent: Option<Hash>,
+    pub signed: bool,
+    pub children: HashNode,
 }
 
 pub struct RecordBlock {
-    name: Hash,
-    parent: Hash,
-    sequence_number: u64,
+    pub name: Hash,
+    pub parent: Hash,
+    pub sequence_number: u64,
 }
 
 // returns the hash of the root of the merkle tree

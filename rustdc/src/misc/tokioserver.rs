@@ -7,7 +7,6 @@ use futures::SinkExt;
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
-use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -56,12 +55,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-/// Shorthand for the transmit half of the message channel.
-type Tx = mpsc::UnboundedSender<String>;
-
-/// Shorthand for the receive half of the message channel.
-type Rx = mpsc::UnboundedReceiver<String>;
-
 /// Data that is shared between all peers in the chat server.
 ///
 /// This is the set of `Tx` handles for all connected clients. Whenever a
@@ -69,23 +62,7 @@ type Rx = mpsc::UnboundedReceiver<String>;
 /// iterating over the `peers` entries and sending a copy of the message on each
 /// `Tx`.
 struct Shared {
-    peers: HashMap<SocketAddr, Tx>,
-}
-
-/// The state for each connected client.
-struct Peer {
-    /// The TCP socket wrapped with the `Lines` codec, defined below.
-    ///
-    /// This handles sending and receiving data on the socket. When using
-    /// `Lines`, we can work at the line level instead of having to manage the
-    /// raw byte operations.
-    lines: Framed<TcpStream, LinesCodec>,
-
-    /// Receive half of the message channel.
-    ///
-    /// This is used to receive messages from peers. When a message is received
-    /// off of this `Rx`, it will be written to the socket.
-    rx: Rx,
+    peers: HashMap<SocketAddr, mpsc::UnboundedSender<String>>,
 }
 
 impl Shared {
@@ -98,31 +75,12 @@ impl Shared {
 
     /// Send a `LineCodec` encoded message to every peer, except
     /// for the sender.
-    async fn broadcast(&mut self, sender: SocketAddr, message: &str) {
+    fn broadcast(&mut self, sender: SocketAddr, message: &str) {
         for peer in self.peers.iter_mut() {
             if *peer.0 != sender {
                 let _ = peer.1.send(message.into());
             }
         }
-    }
-}
-
-impl Peer {
-    /// Create a new instance of `Peer`.
-    async fn new(
-        state: Arc<Mutex<Shared>>,
-        lines: Framed<TcpStream, LinesCodec>,
-    ) -> io::Result<Peer> {
-        // Get the client socket address
-        let addr = lines.get_ref().peer_addr()?;
-
-        // Create a channel for this peer
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        // Add an entry for this `Peer` in the shared state map.
-        state.lock().await.peers.insert(addr, tx);
-
-        Ok(Peer { lines, rx })
     }
 }
 
@@ -147,32 +105,36 @@ async fn process(
         }
     };
 
-    // Register our peer with state which internally sets up some channels.
-    let mut peer = Peer::new(state.clone(), lines).await?;
+    // Get the client socket address
+    let addr = lines.get_ref().peer_addr()?;
+
+    // Create a channel for this peer
+    let (tx, mut rx) = mpsc::unbounded_channel();
 
     // A client has connected, let's let everyone know.
     {
-        let mut state = state.lock().await;
         let msg = format!("{} has joined the chat", username);
         tracing::info!("{}", msg);
-        state.broadcast(addr, &msg).await;
+        let mut state = state.lock().await;
+        state.peers.insert(addr, tx);
+        state.broadcast(addr, &msg);
     }
 
     // Process incoming messages until our stream is exhausted by a disconnect.
     loop {
         tokio::select! {
             // A message was received from a peer. Send it to the current user.
-            Some(msg) = peer.rx.recv() => {
-                peer.lines.send(&msg).await?;
+            Some(msg) = rx.recv() => {
+                lines.send(&msg).await?;
             }
-            result = peer.lines.next() => match result {
+            result = lines.next() => match result {
                 // A message was received from the current user, we should
                 // broadcast this message to the other users.
                 Some(Ok(msg)) => {
                     let mut state = state.lock().await;
                     let msg = format!("{}: {}", username, msg);
 
-                    state.broadcast(addr, &msg).await;
+                    state.broadcast(addr, &msg);
                 }
                 // An error occurred.
                 Some(Err(e)) => {
@@ -196,7 +158,7 @@ async fn process(
 
         let msg = format!("{} has left the chat", username);
         tracing::info!("{}", msg);
-        state.broadcast(addr, &msg).await;
+        state.broadcast(addr, &msg);
     }
 
     Ok(())

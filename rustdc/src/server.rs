@@ -4,19 +4,22 @@ mod merkle;
 mod readstate;
 mod request;
 mod server_internal;
-
+use crypto::PrivateKey;
+use request::ServerCodec;
+use server_internal::writer::process_writer;
+use server_internal::DCServerError;
+use sled::Db;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt;
-use tokio_util::codec::{Framed, LinesCodec};
+use tokio_util::codec::Framed;
 
-use futures::SinkExt;
-use std::collections::HashMap;
 use std::env;
 use std::error::Error;
-use std::io;
 use std::net::SocketAddr;
-use std::sync::Arc;
+
+use crate::crypto::deserialize_private_key_from_pem;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -28,183 +31,68 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_span_events(FmtSpan::FULL)
         .init();
 
-    // Create the shared state. This is how all the peers communicate.
-    //
-    // The server task will hold a handle to this. For every new client, the
-    // `state` handle is cloned and passed into the task that processes the
-    // client connection.
-    let state = Arc::new(Mutex::new(Shared::new()));
+    let args: Vec<String> = env::args().collect();
+    let (addr, db_file, pk_file) = match args.len() {
+        1 => ("127.0.0.1:6142".into(), "my_db".into(), "my_pk".into()),
+        4 => (args[1].clone(), args[2].clone(), args[3].clone()),
+        _ => {
+            println!("3 arguments required: addr, db, pk");
+            return Ok(());
+        }
+    };
 
-    let addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:6142".to_string());
+    run_server(addr, db_file, pk_file).await
+}
 
+async fn run_server(addr: String, db_file: String, pk_file: String) -> Result<(), Box<dyn Error>> {
     // Bind a TCP listener to the socket address.
     //
     // Note that this is the Tokio TcpListener, which is fully async.
     let listener = TcpListener::bind(&addr).await?;
+    let db = sled::open(db_file).unwrap();
+
+    let mut pk_file = File::open(pk_file).await?;
+    let mut pk = Vec::new();
+    pk_file.read_to_end(&mut pk).await?;
+    let pk = deserialize_private_key_from_pem(&pk);
 
     tracing::info!("server running on {}", addr);
 
     loop {
-        // Asynchronously wait for an inbound TcpStream.
         let (stream, addr) = listener.accept().await?;
-
-        // Clone a handle to the `Shared` state for the new connection.
-        let state = Arc::clone(&state);
-
-        // Spawn our handler to be run asynchronously.
+        let db = db.clone();
+        let pk = pk.clone();
         tokio::spawn(async move {
             tracing::debug!("accepted connection");
-            if let Err(e) = process(state, stream, addr).await {
+            if let Err(e) = process(&pk, db, stream, addr).await {
                 tracing::info!("an error occurred; error = {:?}", e);
             }
         });
     }
 }
 
-/// Shorthand for the transmit half of the message channel.
-type Tx = mpsc::UnboundedSender<String>;
-
-/// Shorthand for the receive half of the message channel.
-type Rx = mpsc::UnboundedReceiver<String>;
-
-/// Data that is shared between all peers in the chat server.
-///
-/// This is the set of `Tx` handles for all connected clients. Whenever a
-/// message is received from a client, it is broadcasted to all peers by
-/// iterating over the `peers` entries and sending a copy of the message on each
-/// `Tx`.
-struct Shared {
-    peers: HashMap<SocketAddr, Tx>,
-}
-
-/// The state for each connected client.
-struct Peer {
-    /// The TCP socket wrapped with the `Lines` codec, defined below.
-    ///
-    /// This handles sending and receiving data on the socket. When using
-    /// `Lines`, we can work at the line level instead of having to manage the
-    /// raw byte operations.
-    lines: Framed<TcpStream, LinesCodec>,
-
-    /// Receive half of the message channel.
-    ///
-    /// This is used to receive messages from peers. When a message is received
-    /// off of this `Rx`, it will be written to the socket.
-    rx: Rx,
-}
-
-impl Shared {
-    /// Create a new, empty, instance of `Shared`.
-    fn new() -> Self {
-        Shared {
-            peers: HashMap::new(),
-        }
-    }
-
-    /// Send a `LineCodec` encoded message to every peer, except
-    /// for the sender.
-    async fn broadcast(&mut self, sender: SocketAddr, message: &str) {
-        for peer in self.peers.iter_mut() {
-            if *peer.0 != sender {
-                let _ = peer.1.send(message.into());
-            }
-        }
-    }
-}
-
-impl Peer {
-    /// Create a new instance of `Peer`.
-    async fn new(
-        state: Arc<Mutex<Shared>>,
-        lines: Framed<TcpStream, LinesCodec>,
-    ) -> io::Result<Peer> {
-        // Get the client socket address
-        let addr = lines.get_ref().peer_addr()?;
-
-        // Create a channel for this peer
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        // Add an entry for this `Peer` in the shared state map.
-        state.lock().await.peers.insert(addr, tx);
-
-        Ok(Peer { lines, rx })
-    }
-}
-
-/// Process an individual chat client
+/// Process an individual client
 async fn process(
-    state: Arc<Mutex<Shared>>,
+    pk: &PrivateKey,
+    db: Db,
     stream: TcpStream,
     addr: SocketAddr,
-) -> Result<(), Box<dyn Error>> {
-    let mut lines = Framed::new(stream, LinesCodec::new());
+) -> Result<(), DCServerError> {
+    let mut framed = Framed::new(stream, ServerCodec::new());
 
-    // Send a prompt to the client to enter their username.
-    lines.send("Please enter your username:").await?;
-
-    // Read the first line from the `LineCodec` stream to get the username.
-    let username = match lines.next().await {
-        Some(Ok(line)) => line,
-        // We didn't get a line so we return early here.
+    let init_req = match framed.next().await {
+        Some(Ok(request::Request::Init(i))) => i,
         _ => {
-            tracing::error!("Failed to get username from {}. Client disconnected.", addr);
+            tracing::error!("Failed to init {}", addr);
             return Ok(());
         }
     };
-
-    // Register our peer with state which internally sets up some channels.
-    let mut peer = Peer::new(state.clone(), lines).await?;
-
-    // A client has connected, let's let everyone know.
-    {
-        let mut state = state.lock().await;
-        let msg = format!("{} has joined the chat", username);
-        tracing::info!("{}", msg);
-        state.broadcast(addr, &msg).await;
-    }
-
-    // Process incoming messages until our stream is exhausted by a disconnect.
-    loop {
-        tokio::select! {
-            // A message was received from a peer. Send it to the current user.
-            Some(msg) = peer.rx.recv() => {
-                peer.lines.send(&msg).await?;
-            }
-            result = peer.lines.next() => match result {
-                // A message was received from the current user, we should
-                // broadcast this message to the other users.
-                Some(Ok(msg)) => {
-                    let mut state = state.lock().await;
-                    let msg = format!("{}: {}", username, msg);
-
-                    state.broadcast(addr, &msg).await;
-                }
-                // An error occurred.
-                Some(Err(e)) => {
-                    tracing::error!(
-                        "an error occurred while processing messages for {}; error = {:?}",
-                        username,
-                        e
-                    );
-                }
-                // The stream has been exhausted.
-                None => break,
-            },
+    match init_req {
+        request::InitRequest::Create => todo!(),
+        request::InitRequest::Read(_) => todo!(),
+        request::InitRequest::Write(dc_name) => {
+            process_writer(pk, db, &dc_name, framed, addr).await
         }
+        request::InitRequest::Subscribe(_) => todo!(),
     }
-
-    // If this section is reached it means that the client was disconnected!
-    // Let's let everyone still connected know about it.
-    {
-        let mut state = state.lock().await;
-        state.peers.remove(&addr);
-
-        let msg = format!("{} has left the chat", username);
-        tracing::info!("{}", msg);
-        state.broadcast(addr, &msg).await;
-    }
-
-    Ok(())
 }

@@ -145,7 +145,7 @@ impl WriterConnection {
             }
         }
         // throw away transient variables in case of an error
-        if let Err(_) = res {
+        if res.is_err() {
             self.next_sequence_number = self.next_commit_start_number;
             self.uncommitted_hashes.clear();
         }
@@ -179,7 +179,7 @@ impl WriterConnection {
                     // build a merkle tree, clear the uncommitted hashes,
                     // send a commit request, update the last written hash
                     // updated finished with the root hash
-                    let root_hash = merkle_tree_root(&uncommitted_hashes, &last_commit_hash);
+                    let root_hash = merkle_tree_root(uncommitted_hashes, &last_commit_hash);
                     let signature = sign(&root_hash, signing_key);
                     let req = Request::Write(WriteRequest::Commit {
                         additional_hash: last_commit_hash,
@@ -214,7 +214,7 @@ impl WriterConnection {
             match (resp, op) {
                 (Response::WriteData(s), WriterOperation::Record(_)) => {
                     if !s {
-                        return Err(DCError::ServerError("failed to write commit".into()));
+                        return Err(DCError::ServerError("failed to write record".into()));
                     }
                 }
                 (Response::WriteCommit(signed_hash), WriterOperation::Commit) => {
@@ -222,10 +222,9 @@ impl WriterConnection {
                         Some(s) => s,
                         None => return Err(DCError::ServerError("could not commit".into())),
                     };
-                    if verify_signature(&signed_hash, &server_public_key) {
-                        finished.push(signed_hash.hash);
-                    } else {
-                        return Err(DCError::Cryptographic("bad signature".into()));
+                    match verify_signature(&signed_hash, server_public_key) {
+                        Some(h) => finished.push(h),
+                        None => return Err(DCError::Cryptographic("bad signature".into())),
                     }
                 }
                 _ => return Err(DCError::ServerError("mismatched response".into())),

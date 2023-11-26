@@ -92,7 +92,7 @@ fn encode<T: Serialize>(item: T, dst: &mut BytesMut) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn decode<'a, T: Serialize + DeserializeOwned>(src: &mut BytesMut) -> Result<Option<T>, io::Error> {
+fn decode<T: Serialize + DeserializeOwned>(src: &mut BytesMut) -> Result<Option<T>, io::Error> {
     if src.len() < 8 {
         return Ok(None);
     }

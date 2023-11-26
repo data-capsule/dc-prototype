@@ -1,7 +1,9 @@
 use openssl::{
-    ec::EcKey,
+    bn::BigNumContext,
+    ec::{EcGroup, EcKey, PointConversionForm},
     ecdsa::EcdsaSig,
     hash::{Hasher, MessageDigest},
+    nid::Nid,
     pkey::{Private, Public},
     rand::rand_bytes,
     symm::{Cipher, Crypter, Mode},
@@ -28,7 +30,23 @@ pub const NULL_HASH: Hash = [0; 32];
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SignedHash {
     signature: Vec<u8>,
-    pub hash: Hash,
+    hash: Hash,
+}
+
+pub fn serialize_pubkey(key: &PublicKey) -> Vec<u8> {
+    let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
+    let mut ctx = BigNumContext::new().unwrap();
+    key.public_key()
+        .to_bytes(&group, PointConversionForm::COMPRESSED, &mut ctx)
+        .unwrap()
+}
+
+pub fn deserialize_pubkey(key: Vec<u8>) -> PublicKey {
+    EcKey::<Public>::public_key_from_der(&key).unwrap()
+}
+
+pub fn deserialize_private_key_from_pem(pem: &[u8]) -> PrivateKey {
+    EcKey::<Private>::private_key_from_pem(pem).unwrap()
 }
 
 /*
@@ -82,7 +100,7 @@ pub fn encrypt(seqno: u64, data: &[u8], key: &SymmetricKey) -> Vec<u8> {
     rand_bytes(iv).unwrap();
 
     // Create a cipher context for encryption.
-    let mut encrypter = Crypter::new(Cipher::aes_128_cbc(), Mode::Encrypt, key, Some(&iv)).unwrap();
+    let mut encrypter = Crypter::new(Cipher::aes_128_cbc(), Mode::Encrypt, key, Some(iv)).unwrap();
 
     // Encrypt data
     let mut count = 8 + 16;
@@ -132,7 +150,12 @@ pub fn sign(hash: &Hash, key: &PrivateKey) -> SignedHash {
 /*
 TODO: this method is ugly. make return result
 */
-pub fn verify_signature(signed_hash: &SignedHash, key: &PublicKey) -> bool {
+/// Verifies the signature. If the signature is valid, returns the hash that was signed.
+pub fn verify_signature(signed_hash: &SignedHash, key: &PublicKey) -> Option<Hash> {
     let sig = EcdsaSig::from_der(&signed_hash.signature).expect("verify");
-    sig.verify(&signed_hash.hash, key).expect("verify")
+    if sig.verify(&signed_hash.hash, key).expect("verify") {
+        Some(signed_hash.hash)
+    } else {
+        None
+    }
 }
