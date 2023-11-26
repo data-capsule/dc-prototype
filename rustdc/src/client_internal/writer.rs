@@ -57,7 +57,7 @@ impl WriterConnection {
         };
 
         match res {
-            Response::Init(true) => {}
+            Response::Init => {}
             _ => {
                 return Err(DCError::ServerError("bad init".into()));
             }
@@ -212,16 +212,11 @@ impl WriterConnection {
                 None => return Err(DCError::Other("stream ended".to_string())),
             };
             match (resp, op) {
-                (Response::WriteData(s), WriterOperation::Record(_)) => {
-                    if !s {
-                        return Err(DCError::ServerError("failed to write record".into()));
-                    }
+                (Response::Failed, _) => {
+                    return Err(DCError::ServerError("server failure".into()));
                 }
+                (Response::WriteData, WriterOperation::Record(_)) => {}
                 (Response::WriteCommit(signed_hash), WriterOperation::Commit) => {
-                    let signed_hash = match signed_hash {
-                        Some(s) => s,
-                        None => return Err(DCError::ServerError("could not commit".into())),
-                    };
                     match verify_signature(&signed_hash, server_public_key) {
                         Some(h) => finished.push(h),
                         None => return Err(DCError::Cryptographic("bad signature".into())),

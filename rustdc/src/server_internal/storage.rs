@@ -33,7 +33,7 @@ impl MetaStorage {
         Ok(())
     }
 
-    pub fn get(&mut self, dc_name: &Hash) -> Result<Option<StoredDataCapsule>, Error> {
+    pub fn get(&self, dc_name: &Hash) -> Result<Option<StoredDataCapsule>, Error> {
         Ok(match self.0.get(dc_name)? {
             Some(d) => from_bytes(&d).ok(),
             None => None,
@@ -58,7 +58,7 @@ impl DataStorage {
         Ok(())
     }
 
-    pub fn get(&mut self, record_name: &Hash) -> Result<Option<Vec<u8>>, Error> {
+    pub fn get(&self, record_name: &Hash) -> Result<Option<Vec<u8>>, Error> {
         Ok(self.0.get(record_name)?.map(|d: IVec| d.to_vec()))
     }
 }
@@ -85,7 +85,7 @@ impl RecordStorage {
         Ok(())
     }
 
-    pub fn get(&mut self, record_name: &Hash) -> Result<Option<(u64, Hash)>, Error> {
+    pub fn get(&self, record_name: &Hash) -> Result<Option<(u64, Hash)>, Error> {
         Ok(match self.0.get(record_name)? {
             Some(d) => {
                 if d.len() != 40 {
@@ -123,7 +123,7 @@ impl NodeStorage {
         Ok(())
     }
 
-    pub fn get(&mut self, node_name: &Hash) -> Result<Option<StoredNode>, Error> {
+    pub fn get(&self, node_name: &Hash) -> Result<Option<StoredNode>, Error> {
         Ok(match self.0.get(node_name)? {
             Some(d) => from_bytes(&d).ok(),
             None => None,
@@ -144,14 +144,14 @@ impl SequenceStorage {
         Ok(())
     }
 
-    pub fn get(&mut self, sequence_number: u64) -> Result<Option<Hash>, Error> {
+    pub fn get(&self, sequence_number: u64) -> Result<Option<Hash>, Error> {
         Ok(match self.0.get(sequence_number.to_le_bytes())? {
             Some(d) => (&d[0..]).try_into().ok(),
             None => None,
         })
     }
 
-    pub fn last_hash(&mut self) -> Result<Option<Hash>, Error> {
+    pub fn last_hash(&self) -> Result<Option<Hash>, Error> {
         Ok(match self.0.last()? {
             Some((_, v)) => (&v[0..]).try_into().ok(),
             None => None,

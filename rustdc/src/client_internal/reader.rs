@@ -51,7 +51,7 @@ impl ReaderConnection {
         };
 
         match res {
-            Response::Init(true) => {}
+            Response::Init => {}
             _ => {
                 return Err(DCError::ServerError("bad init".into()));
             }
@@ -127,6 +127,9 @@ impl ReaderConnection {
                 }
             };
             let resp = match (resp, op) {
+                (Response::Failed, _) => {
+                    return Err(DCError::ServerError("server failed".into()));
+                }
                 (Response::ReadData(data), ReaderOperation::Data(hash)) => {
                     // DATA RESPONSE: where all the magic happens
                     // checks that the hash of the data is correct, then restures the data

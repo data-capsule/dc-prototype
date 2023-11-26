@@ -18,18 +18,19 @@ pub enum Request {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    Init(bool),         // bool success
+    Init,               // successful initialization
     Create(SignedHash), // hash of created datacapsule
     ReadData(Vec<u8>),  // encrypted data, includes seqno
     ReadProof {
         root: Option<SignedHash>,
         nodes: Vec<HashNode>,
     },
-    ReadSeed(bool),
-    WriteData(bool),
-    WriteCommit(Option<SignedHash>),
-    SubscribeNum(Option<u64>),   // last_num, num, wait_after
-    SubscribeName(Option<Hash>), // name
+    ReadSeed,
+    WriteData,
+    WriteCommit(SignedHash),
+    SubscribeNum(u64),   // last_num, num, wait_after
+    SubscribeName(Hash), // name
+    Failed,              // if any operation could not complete
 }
 
 #[derive(Serialize, Deserialize, Debug)]

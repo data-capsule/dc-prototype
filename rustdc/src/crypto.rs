@@ -159,3 +159,7 @@ pub fn verify_signature(signed_hash: &SignedHash, key: &PublicKey) -> Option<Has
         None
     }
 }
+
+pub fn get_hash_no_verify(signed_hash: &SignedHash) -> Hash {
+    signed_hash.hash
+}

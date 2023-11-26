@@ -6,6 +6,7 @@ mod request;
 mod server_internal;
 use crypto::PrivateKey;
 use request::ServerCodec;
+use server_internal::reader::process_reader;
 use server_internal::writer::process_writer;
 use server_internal::DCServerError;
 use sled::Db;
@@ -46,7 +47,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn run_server(addr: String, db_file: String, pk_file: String) -> Result<(), Box<dyn Error>> {
     // Bind a TCP listener to the socket address.
-    //
     // Note that this is the Tokio TcpListener, which is fully async.
     let listener = TcpListener::bind(&addr).await?;
     let db = sled::open(db_file).unwrap();
@@ -89,7 +89,7 @@ async fn process(
     };
     match init_req {
         request::InitRequest::Create => todo!(),
-        request::InitRequest::Read(_) => todo!(),
+        request::InitRequest::Read(dc_name) => process_reader(db, &dc_name, framed, addr).await,
         request::InitRequest::Write(dc_name) => {
             process_writer(pk, db, &dc_name, framed, addr).await
         }

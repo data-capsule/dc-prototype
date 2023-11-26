@@ -57,7 +57,12 @@ pub async fn process_writer(
                 // need to get the sequence number, store data block,
                 // send response, and append to uncommitted_* vectors
                 let r = handle_data(&mut ds, data);
-                if let Err(e) = stream.send(Response::WriteData(r.is_some())).await {
+                let resp = if r.is_some() {
+                    Response::WriteData
+                } else {
+                    Response::Failed
+                };
+                if let Err(e) = stream.send(resp).await {
                     tracing::error!("sending error on {}: {:?}", addr, e);
                     break;
                 }
@@ -83,7 +88,11 @@ pub async fn process_writer(
                     &additional_hash,
                     &signature,
                 );
-                if let Err(e) = stream.send(Response::WriteCommit(r)).await {
+                let r = match r {
+                    Some(s) => Response::WriteCommit(s),
+                    None => Response::Failed,
+                };
+                if let Err(e) = stream.send(r).await {
                     tracing::error!("sending error on {}: {:?}", addr, e);
                     break;
                 }
