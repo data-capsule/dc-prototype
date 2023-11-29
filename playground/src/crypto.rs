@@ -12,6 +12,10 @@ fn main() -> Result<(), ErrorStack> {
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?; // NIST P-256 curve
     let key = EcKey::generate(&group)?;
 
+    let cheese = key.private_key_to_pem()?;
+    let s = String::from_utf8(cheese).unwrap();
+    print!("{}", s);
+
     let _ctx = BigNumContext::new()?;
 
     //let public_key =

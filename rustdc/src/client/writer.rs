@@ -31,7 +31,6 @@ struct SendHalf {
     inner_w: UnboundedSender<(bool, Hash)>,
     encryption_key: SymmetricKey,
     signing_key: PrivateKey,
-    next_sequence_number: u64,
     uncommitted_hashes: Vec<Hash>,
 }
 
@@ -39,10 +38,10 @@ struct ReceiveHalf {
     connection_r: SplitStream<Framed<TcpStream, ClientCodec>>,
     inner_r: UnboundedReceiver<(bool, Hash)>,
     server_public_key: PublicKey,
-    next_commit_start_number: u64,
     last_commit_hash: Hash,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum WriterOperation<'a> {
     Record(&'a [u8]),
     Commit,
@@ -56,7 +55,6 @@ impl WriterConnection {
         encryption_key: SymmetricKey,
         signing_key: PrivateKey,
         last_commit_hash: Hash,
-        next_commit_start_number: u64,
     ) -> Result<Self, DCClientError> {
         let stream =
             initialize_connection(server_address, InitRequest::Write(datacapsule_name)).await?;
@@ -68,30 +66,25 @@ impl WriterConnection {
                 inner_w,
                 encryption_key,
                 signing_key,
-                next_sequence_number: next_commit_start_number,
                 uncommitted_hashes: Vec::new(),
             },
             receive_half: ReceiveHalf {
                 connection_r,
                 inner_r,
                 server_public_key,
-                next_commit_start_number,
                 last_commit_hash,
             },
         })
     }
 
-    /// Gets the sequence number corresponding to the start of the next
-    /// commit, and the hash of the last commit.
-    ///
-    /// For example, if the last successful commit had 8 commits with sequence
-    /// numbers 40..47 inclusive, and root hash ABCD, this would return
-    /// (48, ABCD).
-    pub fn get_checkpoint(&self) -> (u64, Hash) {
-        (
-            self.receive_half.next_commit_start_number,
-            self.receive_half.last_commit_hash,
-        )
+    /// Gets the hash of the last verified commit.
+    pub fn get_last_commit_hash(&self) -> Hash {
+        self.receive_half.last_commit_hash
+    }
+
+    /// Sets the hash of the last commit. The next commit will be a successor of this hash.
+    pub fn set_last_commit_hash(&mut self, h: Hash) {
+        self.receive_half.last_commit_hash = h;
     }
 
     /// Does all the operations, in order. Concurrently sends and receives on
@@ -99,7 +92,7 @@ impl WriterConnection {
     /// round trips. Fills responses with a hash for each successful operation
     /// (for records, the hash of the record. For commits, the commit's root hash).
     ///
-    /// In case of failure, the `get_checkpoint` method can be used to figure
+    /// In case of failure, the `get_last_commit_hash` method can be used to figure
     /// out the last successful commit. A new connection should then be made,
     /// using the checkpoint as a starting point, then any unsuccessful
     /// operations may be re-done.
@@ -112,13 +105,10 @@ impl WriterConnection {
         // in addition to the connection and encryption stuff, we have the
         // following state variables to worry about:
         //   last_commit_hash: Hash
-        //   next_commit_start_number: u64
-        //   next_sequence_number: u64
         //   uncommitted_hashes: Vec<Hash>
-        // The first 2 are the "checkpoint". Be careful that in the case of
-        // errors, these 2 should only reflect fully verified commits
-        // The second 2 we don't have to be careful about; if an error
-        // happens, those two should be thrown away.
+        // The first one is the "checkpoint". Be careful that in the case of
+        // errors, this should only reflect fully verified commits
+        // Uncommitted hashes we won't worry about in the case of errors
         //
         // You may also be wondering: why not just do all the sends,
         // then all the receives? Why bother with the fancy future join stuff?
@@ -126,26 +116,22 @@ impl WriterConnection {
         // processing any receives, at some point the server will stop being
         // able to send results back to us, and the connection will close.
 
-        let next_seqno = self.send_half.next_sequence_number;
         let f1 = Self::send_operations(
             &mut self.send_half,
             self.receive_half.last_commit_hash,
             operations,
         );
-        let f2 = Self::receive_operations(
-            &mut self.receive_half,
-            next_seqno,
-            operations.len(),
-            responses,
-        );
-        let res = match future::join(f1, f2).await {
+        let f2 = Self::receive_operations(&mut self.receive_half, operations.len(), responses);
+
+        let (e1, e2) = future::join(f1, f2).await;
+
+        let res = match (e1, e2) {
             (Err(e), _) | (_, Err(e)) => Err(e),
             (Ok(()), Ok(())) => Ok(()),
         };
 
         if res.is_err() {
             // throw away transient variables
-            self.send_half.next_sequence_number = self.receive_half.next_commit_start_number;
             self.send_half.uncommitted_hashes.clear();
         }
         res
@@ -160,18 +146,14 @@ impl WriterConnection {
             let req = match op {
                 WriterOperation::Record(data) => {
                     // RECORD REQUEST: where all the magic happens
-                    // encrypt the data, send it with a sequence number
-                    // add the hash of seqno + encrypted data to uncommitted hashes
-                    let encrypted_data =
-                        encrypt(half.next_sequence_number, data, &half.encryption_key);
+                    // encrypt the data, add the hash of encrypted data to uncommitted hashes
+                    let encrypted_data = encrypt(data, &half.encryption_key);
                     let hash = hash_data(&encrypted_data);
                     half.uncommitted_hashes.push(hash);
                     if half.inner_w.send((false, hash)).is_err() {
                         return Err(DCClientError::Other("mpsc".to_string()));
                     }
-                    let req = Request::Write(WriteRequest::Data(encrypted_data));
-                    half.next_sequence_number += 1;
-                    req
+                    Request::Write(WriteRequest::Data(encrypted_data))
                 }
                 WriterOperation::Commit => {
                     // COMMIT REQUEST: where all the magic happens
@@ -203,7 +185,6 @@ impl WriterConnection {
 
     async fn receive_operations<'a>(
         half: &mut ReceiveHalf,
-        mut next_sequence_number: u64,
         num_recvs: usize,
         responses: &mut Vec<Hash>,
     ) -> Result<(), DCClientError> {
@@ -222,15 +203,13 @@ impl WriterConnection {
                 }
                 (Response::WriteData, false) => {
                     responses.push(expected_hash);
-                    next_sequence_number += 1;
                 }
                 (Response::WriteCommit(signature), true) => {
                     if verify_signature(&signature, &expected_hash, &half.server_public_key) {
                         // commit is confirmed! woohoo
                         responses.push(expected_hash);
-                        // set checkpoint variables
+                        // set checkpoint variable
                         half.last_commit_hash = expected_hash;
-                        half.next_commit_start_number = next_sequence_number;
                     } else {
                         return Err(DCClientError::Cryptographic("bad signature".into()));
                     }

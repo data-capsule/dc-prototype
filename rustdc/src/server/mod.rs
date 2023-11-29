@@ -1,6 +1,6 @@
 use std::{error::Error, net::SocketAddr};
 
-use futures::StreamExt;
+use futures::{FutureExt, SinkExt, StreamExt};
 use sled::Db;
 use tokio::{
     fs::File,
@@ -11,7 +11,7 @@ use tokio_util::codec::Framed;
 
 use crate::shared::{
     crypto::{deserialize_private_key_from_pem, PrivateKey},
-    request::{self, ServerCodec},
+    request::{self, Request, ServerCodec},
 };
 
 use self::{manager::process_manager, reader::process_reader, writer::process_writer};
@@ -91,8 +91,8 @@ async fn process(
 
     let init_req = match framed.next().await {
         Some(Ok(request::Request::Init(i))) => i,
-        _ => {
-            tracing::error!("Failed to init {}", addr);
+        r => {
+            tracing::error!("Failed to init {}: {:?}", addr, r);
             return Ok(());
         }
     };
@@ -103,5 +103,32 @@ async fn process(
             process_writer(pk, db, &dc_name, framed, addr).await
         }
         request::InitRequest::Subscribe(_) => todo!(),
+    }
+}
+
+// Waits for a request, flushing the previous request if it needs to wait
+// Flushing does not happen if next request is already ready
+async fn wait_for_request(stream: &mut Framed<TcpStream, ServerCodec>) -> Option<Request> {
+    let req = match stream.next().now_or_never() {
+        Some(r) => r,
+        None => {
+            if let Err(e) = stream.flush().await {
+                tracing::error!("flushing error {:?}", e);
+                return None;
+            }
+            stream.next().await
+        }
+    };
+
+    match req {
+        Some(Ok(r)) => Some(r),
+        Some(Err(e)) => {
+            tracing::error!("connection error: {:?}", e);
+            None
+        }
+        None => {
+            tracing::info!("connection ended peacefully");
+            None
+        }
     }
 }

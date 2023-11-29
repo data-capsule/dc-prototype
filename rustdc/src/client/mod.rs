@@ -12,6 +12,7 @@ use tokio_util::codec::Framed;
 
 use crate::shared::request::{ClientCodec, InitRequest, Request, Response};
 
+#[derive(Debug)]
 pub enum DCClientError {
     ServerError(String),
     Cryptographic(String),

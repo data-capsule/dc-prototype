@@ -52,20 +52,52 @@ requests.
 
 # Optimization TODOs:
 
- - use an mspc in client?
-     - turn client into mspc select thing?
  - use an mspc in server to send many responses no block
- - figure out how to reduce serialization/deserialization. notably:
-     - read/write data: store data and seqno together?
+ - figure out how to reduce serialization/deserialization
 
- - see if writer not caring about metadata helps perf
-     - and or in-memory hashmap
 
  - do the SIG_AVOID thing
- - do all setup before sending back init ok lol 
  - implement subscriber
  - implement tests
  - implement benchmark
+
+
+ - clients should tokyo spawn 
+
+# Benchmark numbers
+
+100000 write (no commit): 
+```
+know keys: 91 91
+Did setup in 4.385215ms. DC: [40, ce, ca, ef, 3e, c6, 67, 82, 3d, 93, de, 29, 4f, 35, 6e, c2, 72, 35, 16, 91, 87, 0, c4, 20, 4f, e2, c3, 6d, a2, bd, 84, e5]
+hiyo: 351.116409ms
+hiya: 277.848008ms
+Did writes in 629.655644ms. got 100000
+```
+so 6.29 microseconds per write
+
+100000 write (with commit):
+```
+know keys: 91 91
+Did setup in 4.44992ms. DC: [3c, 1e, 29, de, b2, 33, 5a, 53, 66, 92, 8e, 7c, 5e, e6, 5a, 11, c5, fe, 50, ae, 7b, 9f, 53, ce, 1c, 7c, af, db, 8, fe, 96, a5]
+root time: 15.263268ms
+hiyo: 380.720155ms
+hiya: 784.598702ms
+Did writes in 1.166117878s. got 100001
+
+root time: 24.522577ms
+store records: 418.036622ms
+store treenodes: 155.857782ms
+```
+
+a million writes and reads (with commit, no proofs):
+```
+know keys: 91 91
+Did setup in 4.324286ms. DC: [b2, 8, b8, 8f, a0, ae, e1, 82, a2, 18, 5a, 81, b0, c5, bd, 27, 16, 69, c0, 99, 67, 52, ff, 21, c2, 21, ea, 37, d5, 90, 12, 97]
+Did writes in 15.307566789s. got 1000001
+Did reads in 2.318867792s. got 1000000
+```
+
 
 
 # Major TODOs:

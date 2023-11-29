@@ -2,6 +2,7 @@ use std::env;
 use std::error::Error;
 
 use datacapsule::server::run_server;
+use tracing::Level;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -9,7 +10,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Configure a `tracing` subscriber that logs traces emitted by the chat
     // server.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("server=info".parse()?))
+        .with_env_filter(EnvFilter::from_default_env().add_directive(Level::INFO.into()))
         .with_span_events(FmtSpan::FULL)
         .init();
 

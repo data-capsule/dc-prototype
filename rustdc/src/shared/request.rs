@@ -23,7 +23,7 @@ pub enum Response {
     Init,                    // successful initialization
     ManageCreate(Signature), // sig of hash of created datacapsule
     ManageRead(DataCapsule),
-    ReadData(Vec<u8>), // encrypted data, includes seqno
+    ReadData(Vec<u8>), // encrypted data
     ReadProof {
         root: Option<(Signature, Hash)>,
         nodes: Vec<HashNode>,
@@ -31,9 +31,8 @@ pub enum Response {
     ReadSeed,
     WriteData,
     WriteCommit(Signature),
-    SubscribeNum(u64),   // last_num, num, wait_after
-    SubscribeName(Hash), // name
-    Failed,              // if any operation could not complete
+    SubscribeHashes(Vec<Hash>), // list of records, or list of commits
+    Failed,                     // if any operation could not complete
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -59,7 +58,7 @@ pub enum ReadRequest {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WriteRequest {
-    Data(Vec<u8>), // encrypted data, includes seqno
+    Data(Vec<u8>), // encrypted data
     Commit {
         additional_hash: Hash,
         signature: Signature,
@@ -68,10 +67,8 @@ pub enum WriteRequest {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SubscribeRequest {
-    LastNum(u64),
-    Name(u64),
-    Num(Hash),
-    Wait(u64),
+    FreshestCommits(),
+    Records(Hash),
 }
 
 fn io_err<T>(s: &str) -> Result<T, io::Error> {
@@ -108,7 +105,7 @@ fn decode<T: Serialize + DeserializeOwned>(src: &mut BytesMut) -> Result<Option<
         return Ok(None);
     }
 
-    match from_bytes(&src.split_to(8 + message_len)) {
+    match from_bytes(&src.split_to(8 + message_len)[8..]) {
         Ok(item) => Ok(Some(item)),
         Err(_) => io_err("postcard deserialization"),
     }

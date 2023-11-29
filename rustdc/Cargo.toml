@@ -13,9 +13,8 @@ path = "src/lib.rs"
 name = "server"
 path = "src/server_bin.rs"
 
-[[bin]]
+[[example]]
 name = "interactive_client"
-path = "src/interactive_client_bin.rs"
 
 [[bench]]
 name = "crypto"

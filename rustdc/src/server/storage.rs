@@ -20,7 +20,7 @@ impl MetaStorage {
     }
 
     pub fn store(&mut self, dc_name: &Hash, dc: &DataCapsule) -> Result<(), Error> {
-        let data = to_stdvec(dc).expect("postcard"); // TODO TODOOOOOOO handle well
+        let data = to_stdvec(dc).expect("postcard"); // TODO handle well
         self.0.insert(dc_name, data)?;
         Ok(())
     }
@@ -56,39 +56,21 @@ impl DataStorage {
 }
 
 // key: record hash
-// value: {sequence_number, parent}
+// value: parent hash
 pub struct RecordStorage(Tree);
 impl RecordStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
         Ok(Self(open_tree(db, b'R', dc_name)?))
     }
 
-    pub fn store(
-        &mut self,
-        record_name: &Hash,
-        sequence_number: u64,
-        parent: &Hash,
-    ) -> Result<(), Error> {
-        let mut data = [0; 40];
-        data[0..8].copy_from_slice(&sequence_number.to_le_bytes());
-        data[8..].copy_from_slice(parent);
-        let refdata: &[u8] = &data[0..];
-        self.0.insert(record_name, refdata)?;
+    pub fn store(&mut self, record_name: &Hash, parent: &Hash) -> Result<(), Error> {
+        self.0.insert(record_name, parent)?;
         Ok(())
     }
 
-    pub fn get(&self, record_name: &Hash) -> Result<Option<(u64, Hash)>, Error> {
+    pub fn get(&self, record_name: &Hash) -> Result<Option<Hash>, Error> {
         Ok(match self.0.get(record_name)? {
-            Some(d) => {
-                if d.len() != 40 {
-                    None
-                } else {
-                    let (a, b) = d.split_at(8);
-                    let sn = u64::from_le_bytes(a.try_into().expect("arithmetic"));
-                    let hash = b.try_into().expect("arithmetic");
-                    Some((sn, hash))
-                }
-            }
+            Some(d) => (&d[0..]).try_into().ok(),
             None => None,
         })
     }
@@ -97,12 +79,12 @@ impl RecordStorage {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StoredNode {
     pub parent: Option<Hash>,
-    pub signature: Option<Signature>,
+    pub root_info: Option<(u8, Signature)>,
     pub children: HashNode,
 }
 
 // key: node hash
-// value {Option<parent>, Option<signature>, children}
+// value StoredNode
 pub struct NodeStorage(Tree);
 impl NodeStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
@@ -110,7 +92,7 @@ impl NodeStorage {
     }
 
     pub fn store(&mut self, node_name: &Hash, node: &StoredNode) -> Result<(), Error> {
-        let data = to_stdvec(&node).expect("postcard"); // TODO TODOOOOOOO handle well
+        let data = to_stdvec(&node).expect("postcard"); // TODO handle well
         self.0.insert(node_name, data)?;
         Ok(())
     }
@@ -123,30 +105,30 @@ impl NodeStorage {
     }
 }
 
-// key: seqno
-// value: record hash
-pub struct SequenceStorage(Tree);
-impl SequenceStorage {
+// key: commit hash
+// value: nothing
+pub struct OrphanStorage(Tree);
+impl OrphanStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
-        Ok(Self(open_tree(db, b'S', dc_name)?))
+        Ok(Self(open_tree(db, b'O', dc_name)?))
     }
 
-    pub fn store(&mut self, sequence_number: u64, record_name: &Hash) -> Result<(), Error> {
-        self.0.insert(sequence_number.to_le_bytes(), record_name)?;
+    pub fn replace(&self, old_commit_name: &Hash, commit_name: &Hash) -> Result<(), Error> {
+        self.0.insert(commit_name, &[])?;
+        self.0.remove(old_commit_name)?;
         Ok(())
     }
 
-    pub fn get(&self, sequence_number: u64) -> Result<Option<Hash>, Error> {
-        Ok(match self.0.get(sequence_number.to_le_bytes())? {
-            Some(d) => (&d[0..]).try_into().ok(),
-            None => None,
-        })
-    }
-
-    pub fn last_hash(&self) -> Result<Option<Hash>, Error> {
-        Ok(match self.0.last()? {
-            Some((_, v)) => (&v[0..]).try_into().ok(),
-            None => None,
-        })
+    pub fn all_orphans(&self) -> Result<Option<Vec<Hash>>, Error> {
+        let mut res = Vec::new();
+        for r in self.0.iter() {
+            let k = r?.0;
+            let k: Option<Hash> = (&k[0..]).try_into().ok();
+            match k {
+                Some(k) => res.push(k),
+                None => return Ok(None),
+            }
+        }
+        Ok(Some(res))
     }
 }

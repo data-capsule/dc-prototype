@@ -31,8 +31,9 @@ pub enum ReaderOperation {
     Prove(Hash),
 }
 
+#[derive(Debug)]
 pub enum ReaderResponse {
-    Data { data: Vec<u8>, sequence_number: u64 },
+    Data(Vec<u8>),
     ValidProof,
     ServerFailure,
 }
@@ -83,7 +84,10 @@ impl ReaderConnection {
             operations,
             responses,
         );
-        match future::join(f1, f2).await {
+
+        let (e1, e2) = future::join(f1, f2).await;
+
+        match (e1, e2) {
             (Err(e), _) | (_, Err(e)) => Err(e),
             (Ok(()), Ok(())) => Ok(()),
         }
@@ -126,13 +130,9 @@ impl ReaderConnection {
                 (Response::Failed, _) => ReaderResponse::ServerFailure,
                 (Response::ReadData(data), ReaderOperation::Data(hash)) => {
                     // DATA RESPONSE: where all the magic happens
-                    // checks that the hash of the data is correct, then restures the data
+                    // checks that the hash of the data is correct, then decrypts the data
                     if hash_data(&data) == *hash {
-                        let decrypted = decrypt(&data, encryption_key);
-                        ReaderResponse::Data {
-                            data: decrypted.1,
-                            sequence_number: decrypted.0,
-                        }
+                        ReaderResponse::Data(decrypt(&data, encryption_key))
                     } else {
                         return Err(DCClientError::Cryptographic("invalid hash".into()));
                     }

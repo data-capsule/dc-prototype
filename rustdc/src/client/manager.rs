@@ -31,7 +31,7 @@ impl ManagerConnection {
         writer_pub_key: &PublicKey,
         server_pub_key: &PublicKey,
         description: String,
-    ) -> Result<(), DCClientError> {
+    ) -> Result<Hash, DCClientError> {
         let creator_pub_key = serialize_pubkey(creator_pub_key);
         let writer_pub_key = serialize_pubkey(writer_pub_key);
         let meta_hash = hash_dc_metadata(&creator_pub_key, &writer_pub_key, &description);
@@ -53,7 +53,7 @@ impl ManagerConnection {
         match resp {
             Response::ManageCreate(s) => {
                 if verify_signature(&s, &meta_hash, server_pub_key) {
-                    Ok(())
+                    Ok(meta_hash)
                 } else {
                     Err(DCClientError::Cryptographic("bad signature".into()))
                 }
