@@ -13,8 +13,7 @@ use super::crypto::Signature;
 pub enum Request {
     Init(InitRequest),
     Manage(ManageRequest),
-    Read(ReadRequest),
-    Write(WriteRequest),
+    RW(RWRequest),
     Subscribe(SubscribeRequest),
 }
 
@@ -28,7 +27,6 @@ pub enum Response {
         root: Option<(Signature, Hash)>,
         nodes: Vec<HashNode>,
     },
-    ReadSeed,
     WriteData,
     WriteCommit(Signature),
     SubscribeCommits(Vec<(Hash, Signature)>), // freshest commits
@@ -39,7 +37,6 @@ pub enum Response {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum InitRequest {
     Manage,
-    Read(Hash),
     Write(Hash),
     Subscribe(Hash),
 }
@@ -51,19 +48,14 @@ pub enum ManageRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum ReadRequest {
-    Data(Hash),
-    Proof(Hash),
-    // Seed(Vec<Hash>) TODO: implement option to seed with hashes
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum WriteRequest {
-    Data(Vec<u8>), // encrypted data
+pub enum RWRequest {
+    Write(Vec<u8>), // encrypted data
     Commit {
         additional_hash: Hash,
         signature: Signature,
     },
+    Read(Hash),
+    Proof(Hash),
 }
 
 #[derive(Serialize, Deserialize, Debug)]

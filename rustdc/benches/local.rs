@@ -3,7 +3,7 @@ use std::{net::SocketAddr, time::Instant};
 use datacapsule::client::{
     manager::ManagerConnection,
     reader::{ReaderConnection, ReaderOperation},
-    writer::{WriterConnection, WriterOperation},
+    writer::{WriterConnection, WriterOperation, WriterResponse},
 };
 use openssl::{
     ec::{EcGroup, EcKey},
@@ -24,7 +24,7 @@ async fn keys(pk_file: &str) -> (EcKey<Private>, EcKey<Public>, EcKey<Public>) {
     (client_key, client_pubkey, server_pubkey)
 }
 
-const TOTAL_RECORDS: usize = 1000000;
+const TOTAL_RECORDS: usize = 100000;
 const RECORDS_PER_COMMIT: usize = 1000;
 
 #[tokio::main]
@@ -48,9 +48,17 @@ async fn main() {
             .unwrap()
     };
 
-    let mut wc = WriterConnection::new(dc, server_addr, spubk, *b"1234567812345678", ck, [0; 32])
-        .await
-        .unwrap();
+    let mut wc = WriterConnection::new(
+        dc,
+        server_addr,
+        spubk,
+        cpubk.clone(),
+        ck,
+        *b"1234567812345678",
+        [0; 32],
+    )
+    .await
+    .unwrap();
     let mut rc = ReaderConnection::new(dc, server_addr, *b"1234567812345678", cpubk)
         .await
         .unwrap();
@@ -69,7 +77,7 @@ async fn main() {
     let mut i = 0;
     for _ in 0..(TOTAL_RECORDS / RECORDS_PER_COMMIT) {
         for _ in 0..RECORDS_PER_COMMIT {
-            write_ops.push(WriterOperation::Record(&rawdata[21 * i..21 * (i + 1)]));
+            write_ops.push(WriterOperation::Write(&rawdata[21 * i..21 * (i + 1)]));
             i += 1;
         }
         write_ops.push(WriterOperation::Commit)
@@ -84,9 +92,9 @@ async fn main() {
     let tt = Instant::now();
 
     let mut ops = Vec::new();
-    for a in 0..write_reps.len() {
-        if let WriterOperation::Record(_) = write_ops[a] {
-            ops.push(ReaderOperation::Data(write_reps[a]));
+    for r in &write_reps {
+        if let WriterResponse::Write(h) = r {
+            ops.push(ReaderOperation::Read(*h));
         }
     }
     let mut read_reps = Vec::new();
@@ -96,9 +104,9 @@ async fn main() {
     let tt = Instant::now();
 
     let mut ops = Vec::new();
-    for a in (0..write_reps.len()).rev() {
-        if let WriterOperation::Record(_) = write_ops[a] {
-            ops.push(ReaderOperation::Prove(write_reps[a]));
+    for r in write_reps.iter().rev() {
+        if let WriterResponse::Write(h) = r {
+            ops.push(ReaderOperation::Prove(*h));
         }
     }
     let mut prove_reps = Vec::new();

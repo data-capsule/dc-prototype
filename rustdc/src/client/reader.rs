@@ -9,14 +9,12 @@ use tokio_util::codec::Framed;
 
 use crate::{
     client::DCClientError,
-    shared::crypto::{
-        decrypt, hash_data, hash_node, verify_signature, Hash, PublicKey, SymmetricKey,
-    },
-    shared::readstate::ReadState,
-    shared::request::{ClientCodec, InitRequest, ReadRequest, Request, Response},
+    shared::crypto::{decrypt, hash_data, Hash, PublicKey, SymmetricKey},
+    shared::request::{ClientCodec, InitRequest, Request, Response},
+    shared::{readstate::ReadState, request::RWRequest},
 };
 
-use super::initialize_connection;
+use super::{initialize_connection, writer::verify_proof};
 
 pub struct ReaderConnection {
     connection_w: SplitSink<Framed<TcpStream, ClientCodec>, Request>,
@@ -27,15 +25,14 @@ pub struct ReaderConnection {
 }
 
 pub enum ReaderOperation {
-    Data(Hash),
+    Read(Hash),
     Prove(Hash),
 }
 
 #[derive(Debug)]
 pub enum ReaderResponse {
-    Data(Vec<u8>),
-    ValidProof,
-    ServerFailure,
+    Read(Option<Vec<u8>>),
+    Prove(bool),
 }
 
 impl ReaderConnection {
@@ -46,7 +43,7 @@ impl ReaderConnection {
         writer_public_key: PublicKey,
     ) -> Result<Self, DCClientError> {
         let stream =
-            initialize_connection(server_address, InitRequest::Read(datacapsule_name)).await?;
+            initialize_connection(server_address, InitRequest::Write(datacapsule_name)).await?;
         let (connection_w, connection_r) = stream.split();
         Ok(Self {
             connection_w,
@@ -99,15 +96,13 @@ impl ReaderConnection {
     ) -> Result<(), DCClientError> {
         for op in operations {
             let req = match op {
-                ReaderOperation::Data(hash) => Request::Read(ReadRequest::Data(*hash)),
-                ReaderOperation::Prove(hash) => Request::Read(ReadRequest::Proof(*hash)),
+                ReaderOperation::Read(hash) => Request::RW(RWRequest::Read(*hash)),
+                ReaderOperation::Prove(hash) => Request::RW(RWRequest::Proof(*hash)),
             };
             connection_w.feed(req).await?;
         }
-        // NOTE: should not flush
-        // we want the possibility of multiple messages per TCP frame
-        connection_w.flush().await?;
         // make sure all the requests for this batch actually get sent
+        connection_w.flush().await?;
         Ok(())
     }
 
@@ -127,44 +122,19 @@ impl ReaderConnection {
                 }
             };
             let resp = match (resp, op) {
-                (Response::Failed, _) => ReaderResponse::ServerFailure,
-                (Response::ReadData(data), ReaderOperation::Data(hash)) => {
-                    // DATA RESPONSE: where all the magic happens
+                (Response::Failed, ReaderOperation::Read(_)) => ReaderResponse::Read(None),
+                (Response::Failed, ReaderOperation::Prove(_)) => ReaderResponse::Prove(false),
+                (Response::ReadData(data), ReaderOperation::Read(hash)) => {
                     // checks that the hash of the data is correct, then decrypts the data
                     if hash_data(&data) == *hash {
-                        ReaderResponse::Data(decrypt(&data, encryption_key))
+                        ReaderResponse::Read(Some(decrypt(&data, encryption_key)))
                     } else {
                         return Err(DCClientError::MismatchedHash);
                     }
                 }
                 (Response::ReadProof { root, nodes }, ReaderOperation::Prove(hash)) => {
-                    // PROOF RESPONSE: where all the magic happens
-                    // checks the root signature, checks the hash of each node
-                    // (adding to the cache as it goes)
-                    // then checks that the given hash is in the cache
-
-                    // if the root is provided, check it for validity and add it to the cache
-                    if let Some(s) = root {
-                        if verify_signature(&s.0, &s.1, writer_public_key) {
-                            read_state.add_signed_hash(&s.1);
-                        } else {
-                            return Err(DCClientError::BadSignature);
-                        }
-                    }
-                    // for each node in the chain, check it for validity and add it to the cache
-                    for b in nodes {
-                        if read_state.contains(&hash_node(&b)) {
-                            read_state.add_proven_node(&b);
-                        } else {
-                            return Err(DCClientError::BadProof("node not proven".into()));
-                        }
-                    }
-
-                    // check that the hash that we want to prove is in the cache
-                    if !read_state.contains(hash) {
-                        return Err(DCClientError::BadProof("hash not proven".into()));
-                    }
-                    ReaderResponse::ValidProof
+                    verify_proof(hash, &root, &nodes, writer_public_key, read_state)?;
+                    ReaderResponse::Prove(true)
                 }
                 _ => return Err(DCClientError::ServerError("mismatched response".into())),
             };

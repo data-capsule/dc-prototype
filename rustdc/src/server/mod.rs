@@ -14,13 +14,9 @@ use crate::shared::{
     request::{self, Request, ServerCodec},
 };
 
-use self::{
-    manager::process_manager, reader::process_reader, subscriber::process_subscriber,
-    writer::process_writer,
-};
+use self::{manager::process_manager, subscriber::process_subscriber, writer::process_writer};
 
 mod manager;
-mod reader;
 mod storage;
 mod subscriber;
 mod writer;
@@ -101,7 +97,6 @@ async fn process(
     };
     match init_req {
         request::InitRequest::Manage => process_manager(pk, db, framed, addr).await,
-        request::InitRequest::Read(dc_name) => process_reader(db, &dc_name, framed, addr).await,
         request::InitRequest::Write(dc_name) => {
             process_writer(pk, db, &dc_name, framed, addr).await
         }

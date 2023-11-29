@@ -15,12 +15,17 @@ use crate::{
     shared::crypto::{
         encrypt, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, SymmetricKey,
     },
-    shared::merkle::merkle_tree_root,
-    shared::request::{ClientCodec, InitRequest, Request, Response, WriteRequest},
+    shared::request::{ClientCodec, InitRequest, RWRequest, Request, Response},
+    shared::{
+        crypto::{decrypt, hash_node, HashNode, Signature},
+        merkle::merkle_tree_root,
+        readstate::ReadState,
+    },
 };
 
 use super::initialize_connection;
 
+/// This connection can perform reads and writes.
 pub struct WriterConnection {
     send_half: SendHalf,
     receive_half: ReceiveHalf,
@@ -28,23 +33,43 @@ pub struct WriterConnection {
 
 struct SendHalf {
     connection_w: SplitSink<Framed<TcpStream, ClientCodec>, Request>,
-    inner_w: UnboundedSender<(bool, Hash)>,
+    inner_w: UnboundedSender<(WriterSync, Hash)>,
     encryption_key: SymmetricKey,
-    signing_key: PrivateKey,
+    writer_signing_key: PrivateKey,
     uncommitted_hashes: Vec<Hash>,
 }
 
 struct ReceiveHalf {
     connection_r: SplitStream<Framed<TcpStream, ClientCodec>>,
-    inner_r: UnboundedReceiver<(bool, Hash)>,
+    inner_r: UnboundedReceiver<(WriterSync, Hash)>,
+    encryption_key: SymmetricKey,
     server_public_key: PublicKey,
+    writer_public_key: PublicKey,
     last_commit_hash: Hash,
+    read_state: ReadState,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum WriterOperation<'a> {
-    Record(&'a [u8]),
+enum WriterSync {
+    Write,
     Commit,
+    Read,
+    Prove,
+}
+
+#[derive(Debug, Clone)]
+pub enum WriterOperation<'a> {
+    Write(&'a [u8]),
+    Commit,
+    Read(Hash),
+    Prove(Hash),
+}
+
+#[derive(Debug, Clone)]
+pub enum WriterResponse {
+    Write(Hash),           // hash of record
+    Commit(Hash),          // hash of commit
+    Read(Option<Vec<u8>>), // data, if read is successful
+    Prove(bool),           // whether server was able to return a proof
 }
 
 impl WriterConnection {
@@ -52,27 +77,31 @@ impl WriterConnection {
         datacapsule_name: Hash,
         server_address: SocketAddr,
         server_public_key: PublicKey,
+        writer_public_key: PublicKey,
+        writer_signing_key: PrivateKey,
         encryption_key: SymmetricKey,
-        signing_key: PrivateKey,
         last_commit_hash: Hash,
     ) -> Result<Self, DCClientError> {
         let stream =
             initialize_connection(server_address, InitRequest::Write(datacapsule_name)).await?;
         let (connection_w, connection_r) = stream.split();
-        let (inner_w, inner_r) = mpsc::unbounded_channel::<(bool, Hash)>();
+        let (inner_w, inner_r) = mpsc::unbounded_channel();
         Ok(Self {
             send_half: SendHalf {
                 connection_w,
                 inner_w,
                 encryption_key,
-                signing_key,
+                writer_signing_key,
                 uncommitted_hashes: Vec::new(),
             },
             receive_half: ReceiveHalf {
                 connection_r,
                 inner_r,
+                encryption_key,
                 server_public_key,
+                writer_public_key,
                 last_commit_hash,
+                read_state: ReadState::new(),
             },
         })
     }
@@ -99,7 +128,7 @@ impl WriterConnection {
     pub async fn do_operations<'a>(
         &mut self,
         operations: &[WriterOperation<'a>],
-        responses: &mut Vec<Hash>,
+        responses: &mut Vec<WriterResponse>,
     ) -> Result<(), DCClientError> {
         // Some implementation details:
         // in addition to the connection and encryption stuff, we have the
@@ -143,40 +172,49 @@ impl WriterConnection {
         operations: &[WriterOperation<'a>],
     ) -> Result<(), DCClientError> {
         for op in operations {
-            let req = match op {
-                WriterOperation::Record(data) => {
-                    // RECORD REQUEST: where all the magic happens
+            let (req, sync, hash) = match op {
+                WriterOperation::Write(data) => {
+                    // RECORD REQUEST
                     // encrypt the data, add the hash of encrypted data to uncommitted hashes
                     let encrypted_data = encrypt(data, &half.encryption_key);
                     let hash = hash_data(&encrypted_data);
                     half.uncommitted_hashes.push(hash);
-                    if half.inner_w.send((false, hash)).is_err() {
-                        return Err(DCClientError::Other("mpsc".to_string()));
-                    }
-                    Request::Write(WriteRequest::Data(encrypted_data))
+                    (
+                        Request::RW(RWRequest::Write(encrypted_data)),
+                        WriterSync::Write,
+                        hash,
+                    )
                 }
                 WriterOperation::Commit => {
-                    // COMMIT REQUEST: where all the magic happens
+                    // COMMIT REQUEST
                     // build a merkle tree, clear the uncommitted hashes,
                     // send a commit request, update the last written hash
                     // updated finished with the root hash
                     let root_hash = merkle_tree_root(&half.uncommitted_hashes, &last_commit_hash);
-                    let signature = sign(&root_hash, &half.signing_key);
-                    let req = Request::Write(WriteRequest::Commit {
+                    let signature = sign(&root_hash, &half.writer_signing_key);
+                    let req = Request::RW(RWRequest::Commit {
                         additional_hash: last_commit_hash,
                         signature,
                     });
                     last_commit_hash = root_hash;
                     half.uncommitted_hashes.clear();
-                    if half.inner_w.send((true, root_hash)).is_err() {
-                        return Err(DCClientError::Other("mpsc".to_string()));
-                    }
-                    req
+                    (req, WriterSync::Commit, root_hash)
                 }
+                WriterOperation::Read(hash) => {
+                    (Request::RW(RWRequest::Read(*hash)), WriterSync::Read, *hash)
+                }
+                WriterOperation::Prove(hash) => (
+                    Request::RW(RWRequest::Proof(*hash)),
+                    WriterSync::Prove,
+                    *hash,
+                ),
             };
             // NOTE: should not flush
             // we want the possibility of multiple messages per TCP frame
             half.connection_w.feed(req).await?;
+            if half.inner_w.send((sync, hash)).is_err() {
+                return Err(DCClientError::Other("mpsc".to_string()));
+            }
         }
         // make sure all the requests for this batch actually get sent
         half.connection_w.flush().await?;
@@ -186,37 +224,93 @@ impl WriterConnection {
     async fn receive_operations<'a>(
         half: &mut ReceiveHalf,
         num_recvs: usize,
-        responses: &mut Vec<Hash>,
+        responses: &mut Vec<WriterResponse>,
     ) -> Result<(), DCClientError> {
         for _ in 0..num_recvs {
-            let (is_commit, expected_hash) = match half.inner_r.recv().await {
-                Some(p) => p,
-                None => return Err(DCClientError::Other("mpsc".to_string())),
-            };
             let resp = match half.connection_r.next().await {
                 Some(r) => r?,
                 None => return Err(DCClientError::Other("stream ended".to_string())),
             };
-            match (resp, is_commit) {
-                (Response::Failed, _) => {
+            let (sync, expected_hash) = match half.inner_r.recv().await {
+                Some(p) => p,
+                None => return Err(DCClientError::Other("mpsc".to_string())),
+            };
+            let res = match (resp, sync) {
+                (Response::Failed, WriterSync::Write | WriterSync::Commit) => {
                     return Err(DCClientError::ServerError("server failure".into()));
                 }
-                (Response::WriteData, false) => {
-                    responses.push(expected_hash);
-                }
-                (Response::WriteCommit(signature), true) => {
+                (Response::Failed, WriterSync::Read) => WriterResponse::Read(None),
+                (Response::Failed, WriterSync::Prove) => WriterResponse::Prove(false),
+                (Response::WriteData, WriterSync::Write) => WriterResponse::Write(expected_hash),
+                (Response::WriteCommit(signature), WriterSync::Commit) => {
                     if verify_signature(&signature, &expected_hash, &half.server_public_key) {
                         // commit is confirmed! woohoo
-                        responses.push(expected_hash);
                         // set checkpoint variable
                         half.last_commit_hash = expected_hash;
+                        WriterResponse::Commit(expected_hash)
                     } else {
                         return Err(DCClientError::BadSignature);
                     }
                 }
+                (Response::ReadData(data), WriterSync::Read) => {
+                    // DATA RESPONSE: where all the magic happens
+                    // checks that the hash of the data is correct, then decrypts the data
+                    if hash_data(&data) == expected_hash {
+                        WriterResponse::Read(Some(decrypt(&data, &half.encryption_key)))
+                    } else {
+                        return Err(DCClientError::MismatchedHash);
+                    }
+                }
+                (Response::ReadProof { root, nodes }, WriterSync::Prove) => {
+                    verify_proof(
+                        &expected_hash,
+                        &root,
+                        &nodes,
+                        &half.writer_public_key,
+                        &mut half.read_state,
+                    )?;
+                    WriterResponse::Prove(true)
+                }
                 _ => return Err(DCClientError::ServerError("mismatched response".into())),
-            }
+            };
+            responses.push(res)
         }
         Ok(())
+    }
+}
+
+pub(crate) fn verify_proof(
+    expected_hash: &Hash,
+    root: &Option<(Signature, Hash)>,
+    nodes: &[HashNode],
+    writer_public_key: &PublicKey,
+    read_state: &mut ReadState,
+) -> Result<(), DCClientError> {
+    // checks the root signature, checks the hash of each node
+    // (adding to the cache as it goes)
+    // then checks that the given hash is in the cache
+
+    // if the root is provided, check it for validity and add it to the cache
+    if let Some(s) = root {
+        if verify_signature(&s.0, &s.1, writer_public_key) {
+            read_state.add_signed_hash(&s.1);
+        } else {
+            return Err(DCClientError::BadSignature);
+        }
+    }
+    // for each node in the chain, check it for validity and add it to the cache
+    for b in nodes {
+        if read_state.contains(&hash_node(b)) {
+            read_state.add_proven_node(b);
+        } else {
+            return Err(DCClientError::BadProof("node not proven".into()));
+        }
+    }
+
+    // check that the hash that we want to prove is in the cache
+    if read_state.contains(expected_hash) {
+        Ok(())
+    } else {
+        Err(DCClientError::BadProof("hash not proven".into()))
     }
 }
