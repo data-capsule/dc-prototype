@@ -31,8 +31,9 @@ pub enum Response {
     ReadSeed,
     WriteData,
     WriteCommit(Signature),
-    SubscribeHashes(Vec<Hash>), // list of records, or list of commits
-    Failed,                     // if any operation could not complete
+    SubscribeCommits(Vec<(Hash, Signature)>), // freshest commits
+    SubscribeRecords(Vec<Hash>, Hash),        // records in a commit, and prev commit
+    Failed,                                   // if any operation could not complete
 }
 
 #[derive(Serialize, Deserialize, Debug)]

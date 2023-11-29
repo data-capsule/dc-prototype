@@ -15,9 +15,12 @@ use crate::shared::request::{ClientCodec, InitRequest, Request, Response};
 #[derive(Debug)]
 pub enum DCClientError {
     ServerError(String),
-    Cryptographic(String),
+    MismatchedHash,
+    BadSignature,
+    BadProof(String),
     OpenSSL(ErrorStack),
     IO(io::Error),
+    StreamEnded,
     Other(String),
 }
 
@@ -33,6 +36,15 @@ impl From<ErrorStack> for DCClientError {
     }
 }
 
+async fn next_response(
+    stream: &mut Framed<TcpStream, ClientCodec>,
+) -> Result<Response, DCClientError> {
+    match stream.next().await {
+        Some(r) => Ok(r?),
+        None => Err(DCClientError::StreamEnded),
+    }
+}
+
 async fn initialize_connection(
     server_address: SocketAddr,
     req: InitRequest,
@@ -40,11 +52,7 @@ async fn initialize_connection(
     let tt = TcpStream::connect(server_address).await?;
     let mut stream = Framed::new(tt, ClientCodec::new());
     stream.send(Request::Init(req)).await?;
-    let res = match stream.next().await {
-        Some(r) => r?,
-        None => return Err(DCClientError::Other("stream ended".into())),
-    };
-    match res {
+    match next_response(&mut stream).await? {
         Response::Init => Ok(stream),
         _ => Err(DCClientError::ServerError("bad init".into())),
     }

@@ -134,7 +134,7 @@ impl ReaderConnection {
                     if hash_data(&data) == *hash {
                         ReaderResponse::Data(decrypt(&data, encryption_key))
                     } else {
-                        return Err(DCClientError::Cryptographic("invalid hash".into()));
+                        return Err(DCClientError::MismatchedHash);
                     }
                 }
                 (Response::ReadProof { root, nodes }, ReaderOperation::Prove(hash)) => {
@@ -146,7 +146,7 @@ impl ReaderConnection {
                     // if the root is provided, check it for validity and add it to the cache
                     if let Some(s) = root {
                         if !verify_signature(&s.0, &s.1, writer_public_key) {
-                            return Err(DCClientError::Cryptographic("invalid signature".into()));
+                            return Err(DCClientError::BadSignature);
                         }
                     }
                     // for each node in the chain, check it for validity and add it to the cache
@@ -154,13 +154,13 @@ impl ReaderConnection {
                         if read_state.contains(&hash_node(&b)) {
                             read_state.add_proven_node(&b);
                         } else {
-                            return Err(DCClientError::Cryptographic("node not proven".into()));
+                            return Err(DCClientError::BadProof("node not proven".into()));
                         }
                     }
 
                     // check that the hash that we want to prove is in the cache
                     if !read_state.contains(hash) {
-                        return Err(DCClientError::Cryptographic("hash not proven".into()));
+                        return Err(DCClientError::BadProof("hash not proven".into()));
                     }
                     ReaderResponse::ValidProof
                 }

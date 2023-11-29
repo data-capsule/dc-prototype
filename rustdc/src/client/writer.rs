@@ -211,7 +211,7 @@ impl WriterConnection {
                         // set checkpoint variable
                         half.last_commit_hash = expected_hash;
                     } else {
-                        return Err(DCClientError::Cryptographic("bad signature".into()));
+                        return Err(DCClientError::BadSignature);
                     }
                 }
                 _ => return Err(DCClientError::ServerError("mismatched response".into())),

@@ -106,26 +106,32 @@ impl NodeStorage {
 }
 
 // key: commit hash
-// value: nothing
+// value: signature
 pub struct OrphanStorage(Tree);
 impl OrphanStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
         Ok(Self(open_tree(db, b'O', dc_name)?))
     }
 
-    pub fn replace(&self, old_commit_name: &Hash, commit_name: &Hash) -> Result<(), Error> {
-        self.0.insert(commit_name, &[])?;
+    pub fn replace(
+        &self,
+        old_commit_name: &Hash,
+        commit_name: &Hash,
+        signature: &Signature,
+    ) -> Result<(), Error> {
+        self.0.insert(commit_name, &signature[..])?;
         self.0.remove(old_commit_name)?;
         Ok(())
     }
 
-    pub fn all_orphans(&self) -> Result<Option<Vec<Hash>>, Error> {
+    pub fn all_orphans(&self) -> Result<Option<Vec<(Hash, Signature)>>, Error> {
         let mut res = Vec::new();
         for r in self.0.iter() {
-            let k = r?.0;
-            let k: Option<Hash> = (&k[0..]).try_into().ok();
+            let r = r?;
+            let k: Option<Hash> = (&r.0[0..]).try_into().ok();
+            let v = r.1[..].to_vec();
             match k {
-                Some(k) => res.push(k),
+                Some(k) => res.push((k, v)),
                 None => return Ok(None),
             }
         }

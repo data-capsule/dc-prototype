@@ -20,8 +20,8 @@ pub struct ManagerConnection {
 
 impl ManagerConnection {
     pub async fn new(server_address: SocketAddr) -> Result<Self, DCClientError> {
-        let stream = initialize_connection(server_address, InitRequest::Manage).await?;
-        Ok(Self { connection: stream })
+        let connection = initialize_connection(server_address, InitRequest::Manage).await?;
+        Ok(Self { connection })
     }
 
     pub async fn create(
@@ -55,7 +55,7 @@ impl ManagerConnection {
                 if verify_signature(&s, &meta_hash, server_pub_key) {
                     Ok(meta_hash)
                 } else {
-                    Err(DCClientError::Cryptographic("bad signature".into()))
+                    Err(DCClientError::BadSignature)
                 }
             }
             Response::Failed => Err(DCClientError::ServerError("server failed".into())),
@@ -79,7 +79,7 @@ impl ManagerConnection {
                 {
                     Ok(dc)
                 } else {
-                    Err(DCClientError::Cryptographic("mismatched hashes".into()))
+                    Err(DCClientError::MismatchedHash)
                 }
             }
             Response::Failed => Err(DCClientError::ServerError("server failed".into())),

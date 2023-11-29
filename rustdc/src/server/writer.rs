@@ -144,7 +144,7 @@ fn handle_commit(
         }
     }
 
-    if let Err(e) = os.replace(additional_hash, &root) {
+    if let Err(e) = os.replace(additional_hash, &root, client_signature) {
         tracing::error!("ds error: {:?}", e);
         return None;
     }
