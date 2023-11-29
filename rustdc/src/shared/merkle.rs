@@ -16,8 +16,8 @@ pub struct RecordBlock {
 // returns the hash of the root of the merkle tree
 pub fn merkle_tree_root(hashes: &[Hash], additional_hash: &Hash) -> Hash {
     let mut current_layer = Vec::new();
-    current_layer.extend(hashes);
     current_layer.push(*additional_hash);
+    current_layer.extend(hashes);
     loop {
         let len_next_layer = (current_layer.len() - 1) / FANOUT + 1;
         let mut next_layer = Vec::with_capacity(len_next_layer);
@@ -56,8 +56,8 @@ pub fn merkle_tree_storage(
     let mut additional_hash_parent = NULL_HASH;
 
     let mut current_layer = Vec::new();
-    current_layer.extend(hashes);
     current_layer.push(*additional_hash);
+    current_layer.extend(hashes);
     let mut depth = 0;
     loop {
         let len_next_layer = (current_layer.len() - 1) / FANOUT + 1;
@@ -91,8 +91,8 @@ pub fn merkle_tree_storage(
         });
 
         if depth == 0 {
-            additional_hash_parent = last_hash_in_next_layer;
-            for i in 0..(current_layer.len() - 1) {
+            additional_hash_parent = next_layer[0];
+            for i in 1..current_layer.len() {
                 records.push(RecordBlock {
                     name: current_layer[i],
                     parent: next_layer[i / FANOUT],

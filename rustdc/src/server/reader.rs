@@ -5,6 +5,7 @@ use sled::Db;
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
+use crate::shared::config::SIG_AVOID;
 use crate::shared::crypto::Hash;
 use crate::shared::readstate::ReadState;
 use crate::shared::request::{ReadRequest, Request, Response, ServerCodec};
@@ -65,6 +66,7 @@ fn build_proof(
 
     let mut nodes = Vec::new();
     let mut root = None;
+    let mut root_parent = None;
 
     // go up the chain (modifying hash and parent)
     while !read_state.contains(&hash) {
@@ -76,6 +78,7 @@ fn build_proof(
         if let Some((_, signature)) = parent_node.root_info {
             if !read_state.contains(&parent) {
                 root = Some((signature, parent));
+                root_parent = parent_node.parent;
             }
             break;
         };
@@ -86,7 +89,29 @@ fn build_proof(
         }
     }
 
-    // TODO: signature avoidance
+    // signature avoidance
+    // tends to make sequential benchmarks slower, do not use
+    if root.is_some() && SIG_AVOID > 0 {
+        let mut extras = Vec::new();
+        while extras.len() < SIG_AVOID {
+            if let Some(p) = root_parent {
+                let parent_node = match ns.get(&p) {
+                    Ok(Some(p)) => p,
+                    _ => break,
+                };
+                extras.push(parent_node.children);
+                if read_state.contains(&p) {
+                    // found a replacement proof
+                    root = None;
+                    nodes.append(&mut extras);
+                    break;
+                }
+                root_parent = parent_node.parent;
+            } else {
+                break;
+            }
+        }
+    }
 
     // add proof to read_state the same way the client does
     nodes.reverse();

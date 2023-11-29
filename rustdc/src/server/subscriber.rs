@@ -73,6 +73,6 @@ fn get_all_leaves(ns: &NodeStorage, hash: &Hash) -> Response {
         depth -= 1;
     }
 
-    let additional_hash = level.pop().unwrap();
+    let additional_hash = level.remove(0);
     Response::SubscribeRecords(level, additional_hash)
 }

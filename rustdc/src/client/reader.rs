@@ -145,7 +145,9 @@ impl ReaderConnection {
 
                     // if the root is provided, check it for validity and add it to the cache
                     if let Some(s) = root {
-                        if !verify_signature(&s.0, &s.1, writer_public_key) {
+                        if verify_signature(&s.0, &s.1, writer_public_key) {
+                            read_state.add_signed_hash(&s.1);
+                        } else {
                             return Err(DCClientError::BadSignature);
                         }
                     }

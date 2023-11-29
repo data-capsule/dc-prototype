@@ -1,0 +1,78 @@
+
+Forwards:
+
+
+100k, one commit:
+```
+Did setup in 8.683547ms. DC: [7d, 6c, b1, 13, 9, 14, a6, fc, 7, eb, e1, 2f, d4, 42, 87, 46, 92, 35, c6, 3b, 90, 41, 3, 89, f3, 30, cc, 60, c6, 86, 1, cc]
+Did writes in 1.12385738s. got 100001
+counts: 0 0
+Did reads in 222.910729ms. got 100001
+counts: 1 34153
+Did proofs in 264.176797ms. got 100001
+```
+
+100k, 10 commits:
+```
+know keys: 91 91
+Did setup in 7.554826ms. DC: [11, 64, ab, 3a, 8f, 9d, 8c, 0, df, 16, 82, dd, 26, c2, 1d, fd, db, 7b, df, 1d, f2, 64, 94, 57, 92, 8c, 3c, 64, 4e, 11, ad, db]
+Did writes in 1.253571108s. got 100010
+counts: 0 0
+Did reads in 220.901949ms. got 100010
+counts: 10 34057
+Did proofs in 226.385966ms. got 100010
+```
+100k, 100 commits:
+```
+know keys: 91 91
+Did setup in 8.57037ms. DC: [69, 29, cc, bf, 93, df, 46, 68, 1e, 51, ca, fb, bc, ac, 4e, a5, af, 82, fe, 14, a4, ed, b9, cb, 9, d5, 4, 3e, 59, 5d, aa, 9f]
+Did writes in 1.486586201s. got 100100
+counts: 0 0
+Did reads in 220.208538ms. got 100100
+counts: 100 33951
+Did proofs in 267.593243ms. got 100100
+```
+100k, 1000 commits:
+```
+know keys: 91 91
+Did setup in 9.507ms. DC: [4e, 78, 2f, d1, 6, 92, ac, 86, 81, a, 1, 93, 9d, 17, 2b, e4, 32, 42, d2, 33, 7f, 85, 5c, 2d, d7, 42, 4b, 32, 77, 5e, 20, 13]
+Did writes in 1.53770479s. got 101000
+counts: 0 0
+Did reads in 220.996008ms. got 101000
+counts: 1000 35325
+Did proofs in 274.588081ms. got 101000
+```
+100k, commits every 10:
+```
+know keys: 91 91
+Did setup in 12.51117ms. DC: [91, da, 88, 60, 6a, 7d, 9a, 1a, 86, 7a, b4, 2f, 21, 8a, a, 75, 2, f1, 4c, 92, 25, 3, 7d, 66, 2c, f5, 38, ee, 44, ec, 80, 43]
+Did writes in 2.24034144s. got 110000
+counts: 0 0
+Did reads in 250.808539ms. got 110000
+counts: 10000 40070
+Did proofs in 565.802166ms. got 110000
+```
+100k, commits every 15:
+```
+know keys: 91 91
+Did setup in 13.46622ms. DC: [a3, 8a, 47, b2, a3, c3, ad, 16, 36, b9, 58, b6, 7f, 29, 79, c, 7f, 20, 2f, 86, 81, b8, 35, 49, da, 3a, 71, 1e, cc, 22, 56, 4b]
+Did writes in 1.900981736s. got 106656
+counts: 0 0
+Did reads in 243.141751ms. got 106656
+counts: 6666 33443
+Did proofs in 391.322289ms. got 106656
+```
+100k, commits every 1:
+```
+Did setup in 12.148324ms. DC: [e5, d9, 34, 12, 4c, 28, 98, 1c, 9f, c2, 21, 73, 19, 35, 35, a, cd, 4d, f6, 25, 1, 1c, eb, ab, 31, aa, c, 33, aa, c4, 5e, 4a]
+Did writes in 10.687583625s. got 200000
+counts: 0 0
+Did reads in 236.285882ms. got 100000
+counts: 100000 100000
+Did proofs in 5.05338407s. got 100000
+```
+
+
+
+
+
