@@ -125,7 +125,7 @@ fn handle_commit(
     let (rbs, tns, additional_hash_parent, root, tree_depth) =
         merkle_tree_storage(uncommitted_hashes, additional_hash);
 
-    if !verify_signature(client_signature, &root, writer_pk) {
+    if !verify_signature(client_signature, &root.name, writer_pk) {
         tracing::error!("bad sig");
         return None;
     }
@@ -142,11 +142,7 @@ fn handle_commit(
             &tn.name,
             &StoredNode {
                 parent: tn.parent,
-                root_info: if tn.signed {
-                    Some((tree_depth, client_signature.clone()))
-                } else {
-                    None
-                },
+                root_info: None,
                 children: tn.children,
             },
         ) {
@@ -155,7 +151,21 @@ fn handle_commit(
         }
     }
 
-    if let Err(e) = os.replace(additional_hash, &root, client_signature) {
+    // last, signed node
+    if let Err(e) = ns.store(
+        &root.name,
+        &StoredNode {
+            parent: None,
+            root_info: Some((tree_depth, client_signature.clone())),
+            children: root.children,
+        },
+    ) {
+        tracing::error!("ds error: {:?}", e);
+        return None;
+    }
+
+    // mark root node as orphan, and additional hash as non-orphan
+    if let Err(e) = os.replace(additional_hash, &root.name, client_signature) {
         tracing::error!("ds error: {:?}", e);
         return None;
     }
@@ -179,7 +189,7 @@ fn handle_commit(
         }
     }
 
-    Some(sign(&root, signing_key))
+    Some(sign(&root.name, signing_key))
 }
 
 fn build_proof(

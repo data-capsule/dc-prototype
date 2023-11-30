@@ -4,7 +4,6 @@ use crate::shared::crypto::{hash_node, Hash, HashNode, NULL_HASH};
 pub struct TreeNode {
     pub name: Hash,
     pub parent: Option<Hash>,
-    pub signed: bool,
     pub children: HashNode,
 }
 
@@ -50,7 +49,7 @@ pub fn merkle_tree_root(hashes: &[Hash], additional_hash: &Hash) -> Hash {
 pub fn merkle_tree_storage(
     hashes: &[Hash],
     additional_hash: &Hash,
-) -> (Vec<RecordBlock>, Vec<TreeNode>, Hash, Hash, u8) {
+) -> (Vec<RecordBlock>, Vec<TreeNode>, Hash, TreeNode, u8) {
     let mut records = Vec::new();
     let mut treeblocks: Vec<TreeNode> = Vec::new();
     let mut additional_hash_parent = NULL_HASH;
@@ -72,7 +71,6 @@ pub fn merkle_tree_storage(
             treeblocks.push(TreeNode {
                 name: new_hash,
                 parent: None,
-                signed: false,
                 children,
             })
         }
@@ -86,7 +84,6 @@ pub fn merkle_tree_storage(
         treeblocks.push(TreeNode {
             name: last_hash_in_next_layer,
             parent: None,
-            signed: false,
             children: last_tree,
         });
 
@@ -112,12 +109,6 @@ pub fn merkle_tree_storage(
         }
     }
 
-    treeblocks.last_mut().unwrap().signed = true;
-    (
-        records,
-        treeblocks,
-        additional_hash_parent,
-        current_layer[0],
-        depth,
-    )
+    let root = treeblocks.pop().unwrap();
+    (records, treeblocks, additional_hash_parent, root, depth)
 }
