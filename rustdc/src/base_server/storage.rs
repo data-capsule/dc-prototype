@@ -58,20 +58,21 @@ impl DataStorage {
 
 // key: record hash
 // value: parent hash
-pub struct RecordStorage(Tree);
-impl RecordStorage {
+pub struct RecordHeaderStorage(Tree);
+impl RecordHeaderStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
         Ok(Self(open_tree(db, b'R', dc_name)?))
     }
 
-    pub fn store(&mut self, record_name: &Hash, parent: &Hash) -> Result<(), Error> {
-        self.0.insert(record_name, parent)?;
+    pub fn store(&mut self, record_name: &Hash, record_header: &dc_repr::RecordHeader) -> Result<(), Error> {
+        let data = to_stdvec(record_header).expect("postcard"); // TODO handle well
+        self.0.insert(record_name, data)?;
         Ok(())
     }
 
-    pub fn get(&self, record_name: &Hash) -> Result<Option<Hash>, Error> {
+    pub fn get(&self, record_name: &Hash) -> Result<Option<dc_repr::RecordHeader>, Error> {
         Ok(match self.0.get(record_name)? {
-            Some(d) => (&d[0..]).try_into().ok(),
+            Some(d) => from_bytes(&d).ok(),
             None => None,
         })
     }
