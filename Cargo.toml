@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "rustdc",
+    "fakep2p"
+]
