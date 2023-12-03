@@ -42,7 +42,7 @@ pub fn sign_record(record_ptr: &Hash, writer_priv_key: &PrivateKey) -> Result<()
     Ok(())
 }
 
-pub fn request_ack(record_ptrs: &Vec<Hash>) -> Result<(), DCClientError> {
+pub fn request_durability_ack(record_ptrs: &Vec<Hash>) -> Result<(), DCClientError> {
     // TODO: send request to obtain acks from servers
 
     // TODO: verify acks from servers

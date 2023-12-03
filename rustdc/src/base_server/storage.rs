@@ -94,14 +94,31 @@ impl RecordWitnessStorage {
         Ok(Self(open_tree(db, b'W', dc_name)?))
     }
 
-    pub fn store(
+    // threadsafe wrt the single given record
+    pub fn update_record_witness(
         &mut self,
         record_name: &Hash,
-        witness: &dc_repr::RecordWitness,
+        new_proposed_witness: &dc_repr::RecordWitness,
     ) -> Result<(), Error> {
-        let data = to_stdvec(witness).expect("postcard"); // TODO handle well
-        self.0.insert(record_name, data)?;
-        Ok(())
+        let res = self.0.fetch_and_update(
+            record_name,
+            |old_witness_bytes: Option<&[u8]>| -> Option<Vec<u8>> {
+                let old_witness: dc_repr::RecordWitness = match old_witness_bytes {
+                    Some(d) => match from_bytes(d).ok() {
+                        Some(w) => w,
+                        None => dc_repr::RecordWitness::None,
+                    },
+                    None => dc_repr::RecordWitness::None,
+                };
+                // TODO: save cost of reserializing if closer_witness is old_witness.
+                let closer_witness = dc_repr::closer_witness(&old_witness, new_proposed_witness);
+                Some(to_stdvec(closer_witness).expect("postcard")) // TODO handle well
+            },
+        );
+        match res {
+            Ok(_) => Ok(()),
+            Err(err) => Err(err),
+        }
     }
 
     pub fn get(&self, record_name: &Hash) -> Result<Option<dc_repr::RecordWitness>, Error> {
