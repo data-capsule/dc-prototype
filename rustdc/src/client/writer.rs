@@ -3,7 +3,7 @@ use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use std::net::SocketAddr;
+use std::{net::SocketAddr, collections::HashMap};
 use tokio::{
     net::TcpStream,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -13,14 +13,10 @@ use tokio_util::codec::Framed;
 use crate::{
     client::DCClientError,
     shared::crypto::{
-        encrypt, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, SymmetricKey,
+        encrypt, decrypt, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, SymmetricKey, Signature
     },
-    shared::request::{ClientCodec, InitRequest, RWRequest, Request, Response},
-    shared::{
-        crypto::{decrypt, hash_node, HashNode, Signature},
-        merkle::merkle_tree_root,
-        readstate::ReadState,
-    },
+    shared::{request::{ClientCodec, InitRequest, RWRequest, Request, Response}, crypto::hash_record_header},
+    shared::{readstate::ReadState, dc_repr},
 };
 
 use super::initialize_connection;
@@ -36,7 +32,7 @@ struct SendHalf {
     inner_w: UnboundedSender<(WriterSync, Hash)>,
     encryption_key: SymmetricKey,
     writer_signing_key: PrivateKey,
-    uncommitted_hashes: Vec<Hash>,
+    dc_name: Hash,
 }
 
 struct ReceiveHalf {
@@ -45,45 +41,43 @@ struct ReceiveHalf {
     encryption_key: SymmetricKey,
     server_public_key: PublicKey,
     writer_public_key: PublicKey,
-    last_commit_hash: Hash,
-    read_state: ReadState,
+    // read_state: ReadState,
 }
 
 enum WriterSync {
     Write,
-    Commit,
+    Sign,
     Read,
     Prove,
 }
 
 #[derive(Debug, Clone)]
-pub enum WriterOperation<'a> {
-    Write(&'a [u8]),
-    Commit,
-    Read(Hash),
-    Prove(Hash),
+pub enum WriterOperation {
+    Write((dc_repr::RecordBody, Hash, Vec<dc_repr::AdditionalRecordPtr>)), // (plaintext_body, prev_record_ptr, addl_ptrs)
+    Sign(Hash),     // record name
+    Read(Hash),     // ^
+    Prove(Hash),    // ^
 }
 
 #[derive(Debug, Clone)]
 pub enum WriterResponse {
-    Write(Hash),           // hash of record
-    Commit(Hash),          // hash of commit
-    Read(Option<Vec<u8>>), // data, if read is successful
-    Prove(bool),           // whether server was able to return a proof
+    Write(Hash),                    // record name (hash pointer)
+    Sign(bool),                     // whether server was able to persist signature
+    Read(Option<(dc_repr::RecordBody, dc_repr::RecordHeader)>),  // (plaintext_body, header)
+    Prove(bool),                    // whether server was able to return a proof
 }
 
 impl WriterConnection {
     pub async fn new(
-        datacapsule_name: Hash,
+        dc_name: Hash,
         server_address: SocketAddr,
         server_public_key: PublicKey,
         writer_public_key: PublicKey,
         writer_signing_key: PrivateKey,
         encryption_key: SymmetricKey,
-        last_commit_hash: Hash,
     ) -> Result<Self, DCClientError> {
         let stream =
-            initialize_connection(server_address, InitRequest::Write(datacapsule_name)).await?;
+            initialize_connection(server_address, InitRequest::Write(dc_name)).await?;
         let (connection_w, connection_r) = stream.split();
         let (inner_w, inner_r) = mpsc::unbounded_channel();
         Ok(Self {
@@ -92,7 +86,7 @@ impl WriterConnection {
                 inner_w,
                 encryption_key,
                 writer_signing_key,
-                uncommitted_hashes: Vec::new(),
+                dc_name,
             },
             receive_half: ReceiveHalf {
                 connection_r,
@@ -100,20 +94,9 @@ impl WriterConnection {
                 encryption_key,
                 server_public_key,
                 writer_public_key,
-                last_commit_hash,
-                read_state: ReadState::new(),
+                // read_state: ReadState::new(),
             },
         })
-    }
-
-    /// Gets the hash of the last verified commit.
-    pub fn get_last_commit_hash(&self) -> Hash {
-        self.receive_half.last_commit_hash
-    }
-
-    /// Sets the hash of the last commit. The next commit will be a successor of this hash.
-    pub fn set_last_commit_hash(&mut self, h: Hash) {
-        self.receive_half.last_commit_hash = h;
     }
 
     /// Does all the operations, in order. Concurrently sends and receives on
@@ -127,7 +110,7 @@ impl WriterConnection {
     /// operations may be re-done.
     pub async fn do_operations<'a>(
         &mut self,
-        operations: &[WriterOperation<'a>],
+        operations: &[WriterOperation],
         responses: &mut Vec<WriterResponse>,
     ) -> Result<(), DCClientError> {
         // Some implementation details:
@@ -147,7 +130,6 @@ impl WriterConnection {
 
         let f1 = Self::send_operations(
             &mut self.send_half,
-            self.receive_half.last_commit_hash,
             operations,
         );
         let f2 = Self::receive_operations(&mut self.receive_half, operations.len(), responses);
@@ -159,60 +141,58 @@ impl WriterConnection {
             (Ok(()), Ok(())) => Ok(()),
         };
 
-        if res.is_err() {
-            // throw away transient variables
-            self.send_half.uncommitted_hashes.clear();
-        }
+        // if res.is_err() {
+        //     // throw away transient variables
+        //     self.send_half.uncommitted_hashes.clear();
+        // }
         res
     }
 
     async fn send_operations<'a>(
         half: &mut SendHalf,
-        mut last_commit_hash: Hash,
-        operations: &[WriterOperation<'a>],
+        operations: &[WriterOperation],
     ) -> Result<(), DCClientError> {
         for op in operations {
-            let (req, sync, hash) = match op {
-                WriterOperation::Write(data) => {
+            let (req, sync, record_name) = match op {
+                WriterOperation::Write((plaintext_body, prev_record_ptr, additional_record_ptrs)) => {
                     // RECORD REQUEST
                     // encrypt the data, add the hash of encrypted data to uncommitted hashes
-                    let encrypted_data = encrypt(data, &half.encryption_key);
-                    let hash = hash_data(&encrypted_data);
-                    half.uncommitted_hashes.push(hash);
+                    let body = encrypt(plaintext_body, &half.encryption_key);
+                    let body_ptr = hash_data(&body);
+                    let header = dc_repr::RecordHeader {
+                        dc_name: half.dc_name,
+                        body_ptr: body_ptr,
+                        prev_record_ptr: *prev_record_ptr,
+                        additional_record_ptrs: additional_record_ptrs.clone(),
+                    };
+                    let record_name = hash_record_header(&header);
                     (
-                        Request::RW(RWRequest::Write(encrypted_data)),
+                        Request::RW(RWRequest::Write(dc_repr::Record { body, header })),
                         WriterSync::Write,
-                        hash,
+                        record_name,
                     )
                 }
-                WriterOperation::Commit => {
-                    // COMMIT REQUEST
-                    // build a merkle tree, clear the uncommitted hashes,
-                    // send a commit request, update the last written hash
-                    // updated finished with the root hash
-                    let root_hash = merkle_tree_root(&half.uncommitted_hashes, &last_commit_hash);
-                    let signature = sign(&root_hash, &half.writer_signing_key);
-                    let req = Request::RW(RWRequest::Commit {
-                        additional_hash: last_commit_hash,
-                        signature,
-                    });
-                    last_commit_hash = root_hash;
-                    half.uncommitted_hashes.clear();
-                    (req, WriterSync::Commit, root_hash)
+                WriterOperation::Sign(record_name) => {
+                    let signature = sign(record_name, &half.writer_signing_key);
+                    (
+                        Request::RW(RWRequest::Sign(*record_name, signature)),
+                        WriterSync::Sign,
+                        *record_name
+                    )
                 }
-                WriterOperation::Read(hash) => {
-                    (Request::RW(RWRequest::Read(*hash)), WriterSync::Read, *hash)
+                WriterOperation::Read(record_name) => {
+                    (Request::RW(RWRequest::Read(*record_name)), WriterSync::Read, *record_name)
                 }
-                WriterOperation::Prove(hash) => (
-                    Request::RW(RWRequest::Proof(*hash)),
+                WriterOperation::Prove(record_name) => (
+                    Request::RW(RWRequest::Proof(*record_name)),
                     WriterSync::Prove,
-                    *hash,
+                    *record_name,
                 ),
             };
             // NOTE: should not flush
             // we want the possibility of multiple messages per TCP frame
             half.connection_w.feed(req).await?;
-            if half.inner_w.send((sync, hash)).is_err() {
+            if half.inner_w.send((sync, record_name)).is_err() {
                 return Err(DCClientError::Other("mpsc".to_string()));
             }
         }
@@ -231,43 +211,47 @@ impl WriterConnection {
                 Some(r) => r?,
                 None => return Err(DCClientError::Other("stream ended".to_string())),
             };
-            let (sync, expected_hash) = match half.inner_r.recv().await {
+            let (sync, record_name) = match half.inner_r.recv().await {
                 Some(p) => p,
                 None => return Err(DCClientError::Other("mpsc".to_string())),
             };
             let res = match (resp, sync) {
-                (Response::Failed, WriterSync::Write | WriterSync::Commit) => {
+                (Response::Failed, WriterSync::Write | WriterSync::Sign) => {
                     return Err(DCClientError::ServerError("server failure".into()));
                 }
                 (Response::Failed, WriterSync::Read) => WriterResponse::Read(None),
                 (Response::Failed, WriterSync::Prove) => WriterResponse::Prove(false),
-                (Response::WriteData, WriterSync::Write) => WriterResponse::Write(expected_hash),
-                (Response::WriteCommit(signature), WriterSync::Commit) => {
-                    if verify_signature(&signature, &expected_hash, &half.server_public_key) {
-                        // commit is confirmed! woohoo
-                        // set checkpoint variable
-                        half.last_commit_hash = expected_hash;
-                        WriterResponse::Commit(expected_hash)
+                (Response::WriteData(ack), WriterSync::Write) => {
+                    if verify_signature(&ack, &record_name, &half.server_public_key) {
+                        WriterResponse::Write(record_name)
+                    } else {
+                        return Err(DCClientError::BadSignature);
+                    }
+                },
+                (Response::WriteSign(ack), WriterSync::Sign) => {
+                    if verify_signature(&ack, &record_name, &half.server_public_key) {
+                        WriterResponse::Sign(true)
                     } else {
                         return Err(DCClientError::BadSignature);
                     }
                 }
-                (Response::ReadData(data), WriterSync::Read) => {
-                    // DATA RESPONSE: where all the magic happens
-                    // checks that the hash of the data is correct, then decrypts the data
-                    if hash_data(&data) == expected_hash {
-                        WriterResponse::Read(Some(decrypt(&data, &half.encryption_key)))
-                    } else {
-                        return Err(DCClientError::MismatchedHash);
-                    }
+                (Response::ReadRecord(record), WriterSync::Read) => {
+                    // TODO: check well-formedness like in previous impl?
+                    // if hash_data(&data) == expected_hash {
+                    //     WriterResponse::Read(Some(decrypt(&data, &half.encryption_key)))
+                    // } else {
+                    //     return Err(DCClientError::MismatchedHash);
+                    // }
+                    let plaintext_body = decrypt(&record.body, &half.encryption_key);
+                    WriterResponse::Read(Some((plaintext_body, record.header)))
                 }
-                (Response::ReadProof { root, nodes }, WriterSync::Prove) => {
+                (Response::ReadProof(best_effort_proof), WriterSync::Prove) => {
+                    // TODO: potentially heavy synchronous block within async context
                     verify_proof(
-                        &expected_hash,
-                        &root,
-                        &nodes,
+                        &record_name,
+                        &best_effort_proof,
                         &half.writer_public_key,
-                        &mut half.read_state,
+                        // &mut half.read_state,
                     )?;
                     WriterResponse::Prove(true)
                 }
@@ -280,37 +264,51 @@ impl WriterConnection {
 }
 
 pub(crate) fn verify_proof(
-    expected_hash: &Hash,
-    root: &Option<(Signature, Hash)>,
-    nodes: &[HashNode],
+    record_name_to_prove: &Hash,
+    best_effort_proof: &dc_repr::BestEffortProof,
     writer_public_key: &PublicKey,
-    read_state: &mut ReadState,
+    // read_state: &mut ReadState,
 ) -> Result<(), DCClientError> {
-    // checks the root signature, checks the hash of each node
-    // (adding to the cache as it goes)
-    // then checks that the given hash is in the cache
+    // TODO: actual witness cache
+    let mut temp_witness_cache: HashMap<Hash, dc_repr::RecordWitness> = HashMap::new(); // record_name : witness
 
-    // if the root is provided, check it for validity and add it to the cache
-    if let Some(s) = root {
-        if verify_signature(&s.0, &s.1, writer_public_key) {
-            read_state.add_signed_hash(&s.1);
-        } else {
-            return Err(DCClientError::BadSignature);
+    if let Some((signed_record_name, signature)) = best_effort_proof.signature {
+        // if server returns a bad signature, assume rest of best-effort-proof doesn't help
+        // (e.g. server is malicious) and end early
+        if !verify_signature(&signature, &signed_record_name, writer_public_key) {
+            return Err(DCClientError::BadProof("bad proof for record_name ...".into()));
         }
-    }
-    // for each node in the chain, check it for validity and add it to the cache
-    for b in nodes {
-        if read_state.contains(&hash_node(b)) {
-            read_state.add_proven_node(b);
-        } else {
-            return Err(DCClientError::BadProof("node not proven".into()));
+
+        temp_witness_cache.insert(signed_record_name, dc_repr::RecordWitness::Signature(signature));
+
+        if signed_record_name == *record_name_to_prove {
+            return Ok(());
         }
     }
 
-    // check that the hash that we want to prove is in the cache
-    if read_state.contains(expected_hash) {
-        Ok(())
-    } else {
-        Err(DCClientError::BadProof("hash not proven".into()))
+    let mut iter = best_effort_proof.chain.into_iter();
+    match iter.next() {
+        None => Err(DCClientError::BadProof("bad proof for record_name ...".into())),
+        Some(first_in_chain) => {
+            if hash_record_header(&first_in_chain) != *record_name_to_prove {
+                return Err(DCClientError::BadProof("bad proof for record_name ...".into()))
+            }
+
+            let mut curr = first_in_chain;
+            while let Some(next) = iter.next() {
+                let curr_record_name = hash_record_header(&curr);
+                if temp_witness_cache.contains_key(&curr_record_name) {
+                    return Ok(())
+                }
+                if next.prev_record_ptr == curr_record_name || next.additional_record_ptrs.into_iter().any(|p| {
+                    p.ptr == curr_record_name
+                }) {
+                    curr = next;
+                } else {
+                    return Err(DCClientError::BadProof("bad proof for record_name ...".into()))
+                }
+            }
+            Err(DCClientError::BadProof("bad proof for record_name ...".into()))
+        }
     }
 }

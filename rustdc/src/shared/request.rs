@@ -23,11 +23,10 @@ pub enum Response {
     Init,                    // successful initialization
     ManageCreate(Signature), // sig of hash of created datacapsule
     ManageRead(dc_repr::Metadata),
-    // ReadData(Vec<u8>), // encrypted data
     ReadRecord(dc_repr::Record),
     ReadProof(dc_repr::BestEffortProof),
-    WriteData,
-    WriteSign,
+    WriteData(Signature),   // server durability ack (server-signed record name)
+    WriteSign(Signature),   // ^
     SubscribeCommits(Vec<(Hash, Signature)>), // freshest commits
     SubscribeRecords(Vec<Hash>, Hash),        // records in a commit, and prev commit
     Failed,                                   // if any operation could not complete

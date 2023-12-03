@@ -79,6 +79,6 @@ impl From<Option<RecordWitness>> for RecordWitness {
 // see server/writer.rs for details.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BestEffortProof {
-    pub chain: Vec<Hash>, // from earlier records to later records
+    pub chain: Vec<RecordHeader>, // from earlier to later
     pub signature: Option<(Hash, Signature)>,
 }

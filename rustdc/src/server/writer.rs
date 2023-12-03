@@ -56,8 +56,8 @@ pub async fn process_writer(
             RWRequest::Write(record) => {
                 match store_record(&record, &mut bs, &mut hs) {
                     Ok(record_name) => {
-                        // TODO: attach successfully signed record name to response?
-                        Response::WriteData
+                        // TODO: check that signing_key is server's private signing key
+                        Response::WriteData(sign(&record_name, signing_key))
                     }
                     Err(e) => {
                         tracing::error!("store record error: {:?}", e);
@@ -81,7 +81,7 @@ pub async fn process_writer(
                             let _ = tokio::task::spawn_blocking(move || {
                                 update_ancestor_witnesses(&record_name, hs2, ws2);
                             });
-                            Response::WriteSign
+                            Response::WriteSign(sign(&record_name, signing_key))
                         }
                         Err(e) => {
                             tracing::error!("store signature error: {:?}", e);
@@ -90,15 +90,17 @@ pub async fn process_writer(
                     }
                 }
             }
-            RWRequest::Read(record_name) => match read_record(&record_name, &mut bs, &mut hs) {
-                Ok(r) => Response::ReadRecord(r),
-                Err(e) => {
-                    tracing::error!("read record error: {:?}", e);
-                    Response::Failed
+            RWRequest::Read(record_name) => {
+                match read_record(&record_name, &mut bs, &mut hs) {
+                    Ok(r) => Response::ReadRecord(r),
+                    Err(e) => {
+                        tracing::error!("read record error: {:?}", e);
+                        Response::Failed
+                    }
                 }
-            },
+            }
             RWRequest::Proof(record_name) => {
-                Response::ReadProof(best_effort_proof(&record_name, &mut ws))
+                Response::ReadProof(best_effort_proof(&record_name, &mut hs, &mut ws))
             }
         };
         stream.feed(resp).await?
@@ -191,6 +193,7 @@ fn update_ancestor_witnesses(
 // can complete (faster now) by sending another proof request.
 fn best_effort_proof(
     record_name: &Hash,
+    hs: &mut RecordHeaderStorage,
     ws: &mut RecordWitnessStorage,
 ) -> dc_repr::BestEffortProof {
     let mut proof = dc_repr::BestEffortProof {
@@ -207,8 +210,13 @@ fn best_effort_proof(
                 return proof;
             }
             dc_repr::RecordWitness::NextRecordPtr(next, _) => {
-                proof.chain.push(curr);
-                curr = next;
+                match hs.get(&curr) {
+                    Ok(Some(curr_header)) =>  {
+                        proof.chain.push(curr_header);
+                        curr = next;
+                    }
+                    _ => return proof,
+                }
             }
             dc_repr::RecordWitness::None => {
                 return proof;
