@@ -110,7 +110,8 @@ impl RecordWitnessStorage {
                     None => dc_repr::RecordWitness::None,
                 };
                 // TODO: save cost of reserializing if closer_witness is old_witness?
-                let closer_witness = dc_repr::RecordWitness::closer(&old_witness, new_proposed_witness);
+                let closer_witness =
+                    dc_repr::RecordWitness::closer(&old_witness, new_proposed_witness);
                 Some(to_stdvec(closer_witness).expect("postcard")) // TODO handle well
             },
         )?;

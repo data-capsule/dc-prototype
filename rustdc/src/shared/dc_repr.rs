@@ -15,7 +15,7 @@ pub struct Metadata {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Record {
     pub body: RecordBody,
-    pub header: RecordHeader
+    pub header: RecordHeader,
 }
 
 pub type RecordBody = Vec<u8>;
@@ -53,7 +53,7 @@ impl RecordWitness {
             (RecordWitness::Signature(_), RecordWitness::Signature(_)) => false,
             (RecordWitness::Signature(_), RecordWitness::NextRecordPtr(_, _)) => true,
             (RecordWitness::NextRecordPtr(_, _), RecordWitness::Signature(_)) => false,
-            (RecordWitness::NextRecordPtr(_, d1), RecordWitness::NextRecordPtr(_, d2)) => d1 < d2
+            (RecordWitness::NextRecordPtr(_, d1), RecordWitness::NextRecordPtr(_, d2)) => d1 < d2,
         }
     }
 

@@ -43,15 +43,15 @@ pub enum InitRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ManageRequest {
     Create(dc_repr::Metadata), // create a datacapsule
-    Read(Hash),          // read a datacapsule
+    Read(Hash),                // read a datacapsule
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RWRequest {
     Write(dc_repr::Record),
     Sign(Hash, Signature), // (record name, signature of record header)
-    Read(Hash), // record name
-    Proof(Hash), // record name
+    Read(Hash),            // record name
+    Proof(Hash),           // record name
 }
 
 #[derive(Serialize, Deserialize, Debug)]
