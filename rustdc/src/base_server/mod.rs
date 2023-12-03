@@ -1,6 +1,6 @@
 pub mod read_handler;
-pub mod write_handler;
 pub mod storage;
+pub mod write_handler;
 
 #[derive(Debug)]
 pub enum DCServerError {

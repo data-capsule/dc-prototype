@@ -1,5 +1,5 @@
-pub mod writer;
 pub mod reader;
+pub mod writer;
 
 #[derive(Debug)]
 pub enum DCClientError {

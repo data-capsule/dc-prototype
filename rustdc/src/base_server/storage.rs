@@ -46,7 +46,11 @@ impl RecordHeaderStorage {
         Ok(Self(open_tree(db, b'H', dc_name)?))
     }
 
-    pub fn store(&mut self, record_name: &Hash, record_header: &dc_repr::RecordHeader) -> Result<(), Error> {
+    pub fn store(
+        &mut self,
+        record_name: &Hash,
+        record_header: &dc_repr::RecordHeader,
+    ) -> Result<(), Error> {
         let data = to_stdvec(record_header).expect("postcard"); // TODO handle well
         self.0.insert(record_name, data)?;
         Ok(())
@@ -68,7 +72,11 @@ impl RecordBodyStorage {
         Ok(Self(open_tree(db, b'B', dc_name)?))
     }
 
-    pub fn store(&mut self, record_name: &Hash, record_body: &dc_repr::RecordBody) -> Result<(), Error> {
+    pub fn store(
+        &mut self,
+        record_name: &Hash,
+        record_body: &dc_repr::RecordBody,
+    ) -> Result<(), Error> {
         self.0.insert(record_name, record_body)?;
         Ok(())
     }
@@ -86,7 +94,11 @@ impl RecordWitnessStorage {
         Ok(Self(open_tree(db, b'W', dc_name)?))
     }
 
-    pub fn store(&mut self, record_name: &Hash, witness: &dc_repr::RecordWitness) -> Result<(), Error> {
+    pub fn store(
+        &mut self,
+        record_name: &Hash,
+        witness: &dc_repr::RecordWitness,
+    ) -> Result<(), Error> {
         let data = to_stdvec(witness).expect("postcard"); // TODO handle well
         self.0.insert(record_name, data)?;
         Ok(())
