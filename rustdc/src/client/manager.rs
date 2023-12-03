@@ -6,10 +6,11 @@ use tokio_util::codec::Framed;
 
 use crate::shared::{
     crypto::{
-        hash_dc_metadata, serialize_pubkey, sign, verify_signature, DataCapsule, Hash, PrivateKey,
+        hash_dc_metadata, serialize_pubkey, sign, verify_signature, Hash, PrivateKey,
         PublicKey,
     },
     request::{ClientCodec, InitRequest, ManageRequest, Request, Response},
+    dc_repr
 };
 
 use super::{initialize_connection, DCClientError};
@@ -35,7 +36,7 @@ impl ManagerConnection {
         let creator_pub_key = serialize_pubkey(creator_pub_key);
         let writer_pub_key = serialize_pubkey(writer_pub_key);
         let meta_hash = hash_dc_metadata(&creator_pub_key, &writer_pub_key, &description);
-        let dc = DataCapsule {
+        let dc = dc_repr::Metadata {
             creator_pub_key,
             writer_pub_key,
             description,
@@ -63,7 +64,7 @@ impl ManagerConnection {
         }
     }
 
-    pub async fn read(&mut self, dc_name: Hash) -> Result<DataCapsule, DCClientError> {
+    pub async fn read(&mut self, dc_name: Hash) -> Result<dc_repr::Metadata, DCClientError> {
         let req = Request::Manage(ManageRequest::Read(dc_name));
         self.connection.send(req).await?;
         let resp = match self.connection.next().await {

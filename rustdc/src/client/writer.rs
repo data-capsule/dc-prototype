@@ -272,21 +272,21 @@ pub(crate) fn verify_proof(
     // TODO: actual witness cache
     let mut temp_witness_cache: HashMap<Hash, dc_repr::RecordWitness> = HashMap::new(); // record_name : witness
 
-    if let Some((signed_record_name, signature)) = best_effort_proof.signature {
+    if let Some((signed_record_name, signature)) = &best_effort_proof.signature {
         // if server returns a bad signature, assume rest of best-effort-proof doesn't help
         // (e.g. server is malicious) and end early
         if !verify_signature(&signature, &signed_record_name, writer_public_key) {
             return Err(DCClientError::BadProof("bad proof for record_name ...".into()));
         }
 
-        temp_witness_cache.insert(signed_record_name, dc_repr::RecordWitness::Signature(signature));
+        temp_witness_cache.insert(*signed_record_name, dc_repr::RecordWitness::Signature(signature.to_vec()));
 
-        if signed_record_name == *record_name_to_prove {
+        if *signed_record_name == *record_name_to_prove {
             return Ok(());
         }
     }
 
-    let mut iter = best_effort_proof.chain.into_iter();
+    let mut iter = best_effort_proof.chain.clone().into_iter();
     match iter.next() {
         None => Err(DCClientError::BadProof("bad proof for record_name ...".into())),
         Some(first_in_chain) => {
@@ -300,7 +300,7 @@ pub(crate) fn verify_proof(
                 if temp_witness_cache.contains_key(&curr_record_name) {
                     return Ok(())
                 }
-                if next.prev_record_ptr == curr_record_name || next.additional_record_ptrs.into_iter().any(|p| {
+                if next.prev_record_ptr == curr_record_name || next.additional_record_ptrs.clone().into_iter().any(|p| {
                     p.ptr == curr_record_name
                 }) {
                     curr = next;
