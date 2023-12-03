@@ -12,10 +12,10 @@ fn open_tree(db: &Db, prefix: u8, dc_name: &Hash) -> Result<Tree, Error> {
     db.open_tree(name)
 }
 
-// key: datacapsule hash
+// key: datacapsule name
 // value: datacapsule metadata
-pub struct MetaStorage(Tree);
-impl MetaStorage {
+pub struct DCMetadataStorage(Tree);
+impl DCMetadataStorage {
     pub fn new(db: &Db) -> Result<Self, Error> {
         Ok(Self(db.open_tree(b"M")?))
     }
@@ -38,30 +38,12 @@ impl MetaStorage {
     }
 }
 
-// key: record hash
-// value: encrypted record data
-pub struct DataStorage(Tree);
-impl DataStorage {
-    pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
-        Ok(Self(open_tree(db, b'D', dc_name)?))
-    }
-
-    pub fn store(&mut self, record_name: &Hash, record_data: &[u8]) -> Result<(), Error> {
-        self.0.insert(record_name, record_data)?;
-        Ok(())
-    }
-
-    pub fn get(&self, record_name: &Hash) -> Result<Option<Vec<u8>>, Error> {
-        Ok(self.0.get(record_name)?.map(|d: IVec| d.to_vec()))
-    }
-}
-
-// key: record hash
-// value: parent hash
+// key: record name (hash/pointer of record header)
+// value: record header
 pub struct RecordHeaderStorage(Tree);
 impl RecordHeaderStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
-        Ok(Self(open_tree(db, b'R', dc_name)?))
+        Ok(Self(open_tree(db, b'H', dc_name)?))
     }
 
     pub fn store(&mut self, record_name: &Hash, record_header: &dc_repr::RecordHeader) -> Result<(), Error> {
@@ -78,36 +60,42 @@ impl RecordHeaderStorage {
     }
 }
 
-// key: commit hash
-// value: signature
-pub struct OrphanStorage(Tree);
-impl OrphanStorage {
+// key: record name (hash/pointer of record **header**)
+// value: record body (encrypted)
+pub struct RecordBodyStorage(Tree);
+impl RecordBodyStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
-        Ok(Self(open_tree(db, b'O', dc_name)?))
+        Ok(Self(open_tree(db, b'B', dc_name)?))
     }
 
-    pub fn replace(
-        &self,
-        old_commit_name: &Hash,
-        commit_name: &Hash,
-        signature: &Signature,
-    ) -> Result<(), Error> {
-        self.0.insert(commit_name, &signature[..])?;
-        self.0.remove(old_commit_name)?;
+    pub fn store(&mut self, record_name: &Hash, record_body: &dc_repr::RecordBody) -> Result<(), Error> {
+        self.0.insert(record_name, record_body)?;
         Ok(())
     }
 
-    pub fn all_orphans(&self) -> Result<Option<Vec<(Hash, Signature)>>, Error> {
-        let mut res = Vec::new();
-        for r in self.0.iter() {
-            let r = r?;
-            let k: Option<Hash> = (&r.0[0..]).try_into().ok();
-            let v = r.1[..].to_vec();
-            match k {
-                Some(k) => res.push((k, v)),
-                None => return Ok(None),
-            }
-        }
-        Ok(Some(res))
+    pub fn get(&self, record_name: &Hash) -> Result<Option<Vec<u8>>, Error> {
+        Ok(self.0.get(record_name)?.map(|d: IVec| d.to_vec()))
+    }
+}
+
+// key: record name (hash/pointer of record header)
+// value: witness (see dc_repr::RecordWitness)
+pub struct RecordWitnessStorage(Tree);
+impl RecordWitnessStorage {
+    pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
+        Ok(Self(open_tree(db, b'W', dc_name)?))
+    }
+
+    pub fn store(&mut self, record_name: &Hash, witness: &dc_repr::RecordWitness) -> Result<(), Error> {
+        let data = to_stdvec(witness).expect("postcard"); // TODO handle well
+        self.0.insert(record_name, data)?;
+        Ok(())
+    }
+
+    pub fn get(&self, record_name: &Hash) -> Result<Option<dc_repr::RecordWitness>, Error> {
+        Ok(match self.0.get(record_name)? {
+            Some(d) => from_bytes(&d).ok(),
+            None => None,
+        })
     }
 }
