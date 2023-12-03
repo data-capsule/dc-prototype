@@ -1,20 +1,19 @@
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use futures::SinkExt;
 use sled::Db;
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
-use crate::shared::config::SIG_AVOID;
 use crate::shared::crypto::{
-    deserialize_pubkey, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, Signature,
+    deserialize_pubkey, hash_record_header, sign, verify_signature, Hash, PrivateKey, PublicKey, Signature,
 };
-use crate::shared::merkle::merkle_tree_storage;
-use crate::shared::readstate::ReadState;
 use crate::shared::request::{RWRequest, Request, Response, ServerCodec};
+use crate::shared::dc_repr;
 
 use super::storage::{
-    DataStorage, MetaStorage, NodeStorage, OrphanStorage, RecordStorage, StoredNode,
+    DCMetadataStorage, RecordBodyStorage, RecordHeaderStorage, RecordWitnessStorage,
 };
 use super::{wait_for_request, DCServerError};
 
@@ -25,18 +24,21 @@ pub async fn process_writer(
     mut stream: Framed<TcpStream, ServerCodec>,
     addr: SocketAddr,
 ) -> Result<(), DCServerError> {
-    let mut ds = DataStorage::new(&db, dc_name)?;
-    let mut rs = RecordStorage::new(&db, dc_name)?;
-    let mut ns = NodeStorage::new(&db, dc_name)?;
-    let mut os = OrphanStorage::new(&db, dc_name)?;
+    let mut bs = RecordBodyStorage::new(&db, dc_name)?;
+    let mut hs = RecordHeaderStorage::new(&db, dc_name)?;
+    let mut ws = RecordWitnessStorage::new(&db, dc_name)?;
 
-    let writer_pk = match MetaStorage::get_writer_pk(&db, dc_name)? {
+    // separate db connection for use by concurrent calls to `update_ancestor_witnesses`
+    // without slowing down main loop.
+    // TODO: would it be more or less efficient to just directly open a new connection on every invocation of update_ancestor_witnesses?
+    // TODO: do we need to use tokio::sync::Mutex instead of std?
+    let hs2 = Arc::new(Mutex::new(RecordHeaderStorage::new(&db, dc_name)?));
+    let ws2 = Arc::new(Mutex::new(RecordWitnessStorage::new(&db, dc_name)?));
+
+    let writer_pk = match DCMetadataStorage::get_writer_pk(&db, dc_name)? {
         Some(v) => deserialize_pubkey(&v),
         None => return Err(DCServerError::MissingStorage("writer_pk".into())),
     };
-
-    let mut uncommitted_hashes: Vec<Hash> = Vec::new();
-    let mut read_state = ReadState::new();
 
     // successfully initialized, start processing real requests
     stream.send(Response::Init).await?;
@@ -50,47 +52,48 @@ pub async fn process_writer(
             None => break,
         };
         let resp = match req {
-            RWRequest::Write(data) => {
-                // need to store data block,
-                // send response, and append to uncommitted_hashes vector
-                let r = handle_data(&mut ds, data);
-                if let Some(name) = r {
-                    uncommitted_hashes.push(name);
-                    Response::WriteData
-                } else {
-                    Response::Failed
+            RWRequest::Write(record) => {
+                match store_record(&record, &mut bs, &mut hs) {
+                    Ok(record_name) => {
+                        // TODO: attach successfully signed record name to response?
+                        Response::WriteData
+                    }
+                    Err(e) => {
+                        tracing::error!("store record error: {:?}", e);
+                        Response::Failed
+                    }
                 }
             }
-            RWRequest::Commit {
-                additional_hash,
-                signature,
-            } => {
-                // need to build merkle tree, check that signature is fine,
-                // store all records, store all nodes, replace orphan in orphan storage
-                let r = handle_commit(
-                    &mut rs,
-                    &mut ns,
-                    &mut os,
-                    &writer_pk,
-                    signing_key,
-                    &uncommitted_hashes,
-                    &additional_hash,
-                    &signature,
-                );
-                uncommitted_hashes.clear();
-                match r {
-                    Some(s) => Response::WriteCommit(s),
-                    None => Response::Failed,
+            RWRequest::Sign(record_name, signature) => {
+                // TODO: verify against writer_pk before anything else
+                match ws.update_record_witness(&record_name, &dc_repr::RecordWitness::Signature(signature)) {
+                    Ok(_) => {
+                        // TODO: check correctness
+                        let hs2 = hs2.clone();
+                        let ws2 = ws2.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            update_ancestor_witnesses(&record_name, hs2, ws2);
+                        });
+                        Response::WriteSign
+                    }
+                    Err(e) => {
+                        tracing::error!("store signature error: {:?}", e);
+                        Response::Failed
+                    }
                 }
             }
-            RWRequest::Read(hash) => {
-                // just get the data block
-                match ds.get(&hash) {
-                    Ok(Some(r)) => Response::ReadData(r),
-                    _ => Response::Failed,
+            RWRequest::Read(record_name) => {
+                match read_record(&record_name, &mut bs, &mut hs) {
+                    Ok(r) => Response::ReadRecord(r),
+                    Err(e) => {
+                        tracing::error!("read record error: {:?}", e);
+                        Response::Failed
+                    }
                 }
             }
-            RWRequest::Proof(hash) => build_proof(&mut read_state, &rs, &ns, hash),
+            RWRequest::Proof(record_name) => {
+                Response::ReadProof(best_effort_proof(&record_name, &mut ws))
+            }
         };
         stream.feed(resp).await?
     }
@@ -102,164 +105,71 @@ pub async fn process_writer(
     Ok(())
 }
 
-fn handle_data(ds: &mut DataStorage, data: Vec<u8>) -> Option<Hash> {
-    let record_name = hash_data(&data);
-    if let Err(e) = ds.store(&record_name, &data) {
-        tracing::error!("ds error: {:?}", e);
-        None
-    } else {
-        Some(record_name)
-    }
+fn store_record(record: &dc_repr::Record, bs: &mut RecordBodyStorage, hs: &mut RecordHeaderStorage) -> Result<Hash, DCServerError> {
+    // TODO: input validation eg making sure body_ptr is valid hash of body
+    bs.store(&record.header.body_ptr, &record.body)?;
+    let record_name = hash_record_header(&record.header);
+    hs.store(&record_name, &record.header)?;
+    Ok(record_name)
 }
 
-fn handle_commit(
-    rs: &mut RecordStorage,
-    ns: &mut NodeStorage,
-    os: &mut OrphanStorage,
-    writer_pk: &PublicKey,
-    signing_key: &PrivateKey,
-    uncommitted_hashes: &[Hash],
-    additional_hash: &Hash,
-    client_signature: &Signature,
-) -> Option<Signature> {
-    let (rbs, tns, additional_hash_parent, root, tree_depth) =
-        merkle_tree_storage(uncommitted_hashes, additional_hash);
-
-    if !verify_signature(client_signature, &root.name, writer_pk) {
-        tracing::error!("bad sig");
-        return None;
-    }
-
-    for rb in rbs {
-        if let Err(e) = rs.store(&rb.name, &rb.parent) {
-            tracing::error!("ds error: {:?}", e);
-            return None;
-        }
-    }
-
-    for tn in tns {
-        if let Err(e) = ns.store(
-            &tn.name,
-            &StoredNode {
-                parent: tn.parent,
-                root_info: None,
-                children: tn.children,
-            },
-        ) {
-            tracing::error!("ds error: {:?}", e);
-            return None;
-        }
-    }
-
-    // last, signed node
-    if let Err(e) = ns.store(
-        &root.name,
-        &StoredNode {
-            parent: None,
-            root_info: Some((tree_depth, client_signature.clone())),
-            children: root.children,
-        },
-    ) {
-        tracing::error!("ds error: {:?}", e);
-        return None;
-    }
-
-    // mark root node as orphan, and additional hash as non-orphan
-    if let Err(e) = os.replace(additional_hash, &root.name, client_signature) {
-        tracing::error!("ds error: {:?}", e);
-        return None;
-    }
-
-    // set parent of additional hash if node exists
-    // node may not exist, or may already have a parent if branching occurs
-    match ns.get(additional_hash) {
-        Ok(Some(mut stored_node)) => {
-            if stored_node.parent.is_none() {
-                stored_node.parent = Some(additional_hash_parent);
-                if let Err(e) = ns.store(additional_hash, &stored_node) {
-                    tracing::error!("ds error: {:?}", e);
-                    return None;
-                }
-            }
-        }
-        Ok(None) => {}
-        Err(e) => {
-            tracing::error!("ds error: {:?}", e);
-            return None;
-        }
-    }
-
-    Some(sign(&root.name, signing_key))
+fn read_record(record_name: &Hash, bs: &mut RecordBodyStorage, hs: &mut RecordHeaderStorage) -> Result<dc_repr::Record, DCServerError> {
+    // TODO: organize error types/messages
+    let header = hs.get(record_name)?
+        .ok_or(DCServerError::MissingStorage("missing header for record named ...".into()))?;
+    let body = bs.get(&header.body_ptr)?
+        .ok_or(DCServerError::MissingStorage("missing body for record named ...".into()))?;
+    Ok(dc_repr::Record{ body, header })
 }
 
-fn build_proof(
-    read_state: &mut ReadState,
-    rs: &RecordStorage,
-    ns: &NodeStorage,
-    mut hash: Hash,
-) -> Response {
-    // every committed record should have a parent
-    let mut parent = match rs.get(&hash) {
-        Ok(Some(p)) => p,
-        _ => return Response::Failed,
-    };
+// TODO: better error handling? shouldn't affect eventual correctness but might affect perf
+fn update_ancestor_witnesses(base_record_name: &Hash, hs: Arc<Mutex<RecordHeaderStorage>>, ws: Arc<Mutex<RecordWitnessStorage>>) -> Result<(), DCServerError> {
+    let mut curr_wave: Vec<Hash> = Vec::from([*base_record_name]);
+    let mut dist_from_new_sig: u64 = 0;
 
-    let mut nodes = Vec::new();
-    let mut root = None;
-    let mut root_parent = None;
-
-    // go up the chain (modifying hash and parent)
-    while !read_state.contains(&hash) {
-        let parent_node = match ns.get(&parent) {
-            Ok(Some(p)) => p,
-            _ => return Response::Failed,
-        };
-        nodes.push(parent_node.children);
-        if let Some((_, signature)) = parent_node.root_info {
-            if !read_state.contains(&parent) {
-                root = Some((signature, parent));
-                root_parent = parent_node.parent;
+    while !curr_wave.is_empty() {
+        let mut next_wave: Vec<Hash> = Vec::new();
+        for record_name in curr_wave.iter() {
+            let header = hs.lock().unwrap().get(record_name)?
+                .ok_or(DCServerError::MissingStorage("missing header for record named ...".into()))?;
+            let new_proposed_witness = dc_repr::RecordWitness::NextRecordPtr(*record_name, dist_from_new_sig);
+            
+            // if new_proposed_witness is not closer than old_witness for this record,
+            // then we know we can't get closer witnesses for ancestors of this record.
+            let old_witness = ws.lock().unwrap().update_record_witness(record_name, &new_proposed_witness)?;
+            if new_proposed_witness.closer_than(&old_witness) {
+                next_wave.push(header.prev_record_ptr);
+                next_wave.append(&mut header.additional_record_ptrs.iter().map(|p| p.ptr).collect())
             }
-            break;
-        };
-        hash = parent;
-        parent = match parent_node.parent {
-            Some(p) => p,
-            None => return Response::Failed,
         }
+        curr_wave = next_wave;
+        dist_from_new_sig += 1;
     }
 
-    // signature avoidance
-    // tends to make sequential benchmarks slower, do not use
-    if root.is_some() && SIG_AVOID > 0 {
-        let mut extras = Vec::new();
-        while extras.len() < SIG_AVOID {
-            if let Some(p) = root_parent {
-                let parent_node = match ns.get(&p) {
-                    Ok(Some(p)) => p,
-                    _ => break,
-                };
-                extras.push(parent_node.children);
-                if read_state.contains(&p) {
-                    // found a replacement proof
-                    root = None;
-                    nodes.append(&mut extras);
-                    break;
-                }
-                root_parent = parent_node.parent;
-            } else {
-                break;
+    Ok(())
+}
+
+// note that this builds a proof that is best-effort and not guaranteed to be complete
+// e.g. in the presence of holes, we can still return a partial proof which the client
+// can complete (faster now) by sending another proof request.
+fn best_effort_proof(record_name: &Hash, ws: &mut RecordWitnessStorage) -> dc_repr::BestEffortProof {
+    let mut proof = dc_repr::BestEffortProof{ chain: Vec::new(), signature: None };
+    let mut curr = *record_name;
+    // TODO: organize this loop better
+    loop {
+        let witness_for_curr: dc_repr::RecordWitness = ws.get(&curr).ok().into();
+        match witness_for_curr {
+            dc_repr::RecordWitness::Signature(signature) => {
+                proof.signature = Some((curr, signature));
+                return proof;
+            }
+            dc_repr::RecordWitness::NextRecordPtr(next, _) => {
+                proof.chain.push(curr);
+                curr = next;
+            }
+            dc_repr::RecordWitness::None => {
+                return proof;
             }
         }
     }
-
-    // add proof to read_state the same way the client does
-    nodes.reverse();
-    if let Some((_, h)) = &root {
-        read_state.add_signed_hash(h);
-    }
-    for n in &nodes {
-        read_state.add_proven_node(n);
-    }
-    Response::ReadProof { root, nodes }
 }

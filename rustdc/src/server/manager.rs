@@ -5,7 +5,7 @@ use sled::Db;
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
-use crate::server::storage::MetaStorage;
+use crate::server::storage::DCMetadataStorage;
 use crate::shared::crypto::{
     deserialize_pubkey, hash_dc_metadata, sign, verify_signature, PrivateKey,
 };
@@ -19,7 +19,7 @@ pub async fn process_manager(
     mut stream: Framed<TcpStream, ServerCodec>,
     addr: SocketAddr,
 ) -> Result<(), DCServerError> {
-    let mut ms = MetaStorage::new(&db)?;
+    let mut ms = DCMetadataStorage::new(&db)?;
 
     // successfully initialized, start processing real requests
     stream.send(Response::Init).await?;

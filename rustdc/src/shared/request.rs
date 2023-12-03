@@ -5,7 +5,8 @@ use postcard::{from_bytes, to_stdvec};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::shared::crypto::{DataCapsule, Hash, HashNode};
+use crate::shared::crypto::{Hash, HashNode};
+use crate::shared::dc_repr;
 
 use super::crypto::Signature;
 
@@ -21,14 +22,12 @@ pub enum Request {
 pub enum Response {
     Init,                    // successful initialization
     ManageCreate(Signature), // sig of hash of created datacapsule
-    ManageRead(DataCapsule),
-    ReadData(Vec<u8>), // encrypted data
-    ReadProof {
-        root: Option<(Signature, Hash)>,
-        nodes: Vec<HashNode>,
-    },
+    ManageRead(dc_repr::Metadata),
+    // ReadData(Vec<u8>), // encrypted data
+    ReadRecord(dc_repr::Record),
+    ReadProof(dc_repr::BestEffortProof),
     WriteData,
-    WriteCommit(Signature),
+    WriteSign,
     SubscribeCommits(Vec<(Hash, Signature)>), // freshest commits
     SubscribeRecords(Vec<Hash>, Hash),        // records in a commit, and prev commit
     Failed,                                   // if any operation could not complete
@@ -43,19 +42,16 @@ pub enum InitRequest {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ManageRequest {
-    Create(DataCapsule), // create a datacapsule
+    Create(dc_repr::Metadata), // create a datacapsule
     Read(Hash),          // read a datacapsule
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RWRequest {
-    Write(Vec<u8>), // encrypted data
-    Commit {
-        additional_hash: Hash,
-        signature: Signature,
-    },
-    Read(Hash),
-    Proof(Hash),
+    Write(dc_repr::Record),
+    Sign(Hash, Signature), // (record name, signature of record header)
+    Read(Hash), // record name
+    Proof(Hash), // record name
 }
 
 #[derive(Serialize, Deserialize, Debug)]
