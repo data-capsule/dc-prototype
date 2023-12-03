@@ -1,0 +1,112 @@
+1 per commit
+
+Did writes in 10.310332405s. got 200000
+signatures: 0, hashes: 0
+Did reads in 213.19446ms. got 100000
+signatures: 1, hashes: 100000
+Did proofs in 434.952984ms. got 100000
+
+10 per commit
+
+Did writes in 2.240029278s. got 110000
+signatures: 0, hashes: 0
+Did reads in 228.68923ms. got 100000
+signatures: 1, hashes: 40092
+Did proofs in 295.320794ms. got 100000
+
+100 per commit
+
+Did writes in 1.463137059s. got 101000
+signatures: 0, hashes: 0
+Did reads in 216.202928ms. got 100000
+signatures: 1, hashes: 36254
+Did proofs in 270.674848ms. got 100000
+
+
+1000 per commit
+
+Did writes in 1.471080809s. got 100100
+signatures: 0, hashes: 0
+Did reads in 224.511489ms. got 100000
+signatures: 50, hashes: 34139
+Did proofs in 279.649036ms. got 100000
+
+
+10000 per commit
+
+Did writes in 1.28478232s. got 100010
+signatures: 0, hashes: 0
+Did reads in 210.307212ms. got 100000
+signatures: 10, hashes: 34098
+Did proofs in 271.545974ms. got 100000
+
+
+100000 per commit
+
+Did writes in 1.251679164s. got 100001
+signatures: 0, hashes: 0
+Did reads in 209.875783ms. got 100000
+signatures: 1, hashes: 34181
+Did proofs in 270.25985ms. got 100000
+
+
+
+NO CACHE
+
+
+1 per commit 
+
+Did writes in 9.85731526s. got 200000
+signatures: 0, hashes: 0
+Did reads in 214.102548ms. got 100000
+signatures: 100000, hashes: 100000
+Did proofs in 5.038261907s. got 100000
+
+
+10 per commit
+
+Did writes in 2.229590623s. got 110000
+signatures: 0, hashes: 0
+Did reads in 218.519652ms. got 100000
+signatures: 100000, hashes: 200000
+Did proofs in 5.174642854s. got 100000
+
+
+100 per commit
+
+Did writes in 1.416147732s. got 101000
+signatures: 0, hashes: 0
+Did reads in 230.888675ms. got 100000
+signatures: 100000, hashes: 400000
+Did proofs in 5.303248055s. got 100000
+
+
+1000 per commit
+
+Did writes in 1.361060123s. got 100100
+signatures: 0, hashes: 0
+Did reads in 234.287065ms. got 100000
+signatures: 100000, hashes: 500000
+Did proofs in 5.355008538s. got 100000
+
+10000 per commit
+
+Did writes in 1.236259823s. got 100010
+signatures: 0, hashes: 0
+Did reads in 248.796068ms. got 100000
+signatures: 100000, hashes: 700000
+Did proofs in 5.489016641s. got 100000
+
+
+100000 per commit
+
+Did writes in 1.095097674s. got 100001
+signatures: 0, hashes: 0
+Did reads in 222.632087ms. got 100000
+signatures: 100000, hashes: 900000
+Did proofs in 5.630124676s. got 100000
+
+
+
+
+
