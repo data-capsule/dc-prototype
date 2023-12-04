@@ -25,11 +25,11 @@ pub enum Response {
     ManageRead(dc_repr::Metadata),
     ReadRecord(dc_repr::Record),
     ReadProof(dc_repr::BestEffortProof),
-    WriteData(Signature),   // server durability ack (server-signed record name)
-    WriteSign(Signature),   // ^
+    WriteData(Signature), // server durability ack (server-signed record name)
+    WriteSign(Signature), // ^
     SubscribeCommits(Vec<(Hash, Signature)>), // freshest commits
-    SubscribeRecords(Vec<Hash>, Hash),        // records in a commit, and prev commit
-    Failed,                                   // if any operation could not complete
+    SubscribeRecords(Vec<Hash>, Hash), // records in a commit, and prev commit
+    Failed,               // if any operation could not complete
 }
 
 #[derive(Serialize, Deserialize, Debug)]

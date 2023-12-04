@@ -90,15 +90,13 @@ pub async fn process_writer(
                     }
                 }
             }
-            RWRequest::Read(record_name) => {
-                match read_record(&record_name, &mut bs, &mut hs) {
-                    Ok(r) => Response::ReadRecord(r),
-                    Err(e) => {
-                        tracing::error!("read record error: {:?}", e);
-                        Response::Failed
-                    }
+            RWRequest::Read(record_name) => match read_record(&record_name, &mut bs, &mut hs) {
+                Ok(r) => Response::ReadRecord(r),
+                Err(e) => {
+                    tracing::error!("read record error: {:?}", e);
+                    Response::Failed
                 }
-            }
+            },
             RWRequest::Proof(record_name) => {
                 Response::ReadProof(best_effort_proof(&record_name, &mut hs, &mut ws))
             }
@@ -209,15 +207,13 @@ fn best_effort_proof(
                 proof.signature = Some((curr, signature));
                 return proof;
             }
-            dc_repr::RecordWitness::NextRecordPtr(next, _) => {
-                match hs.get(&curr) {
-                    Ok(Some(curr_header)) =>  {
-                        proof.chain.push(curr_header);
-                        curr = next;
-                    }
-                    _ => return proof,
+            dc_repr::RecordWitness::NextRecordPtr(next, _) => match hs.get(&curr) {
+                Ok(Some(curr_header)) => {
+                    proof.chain.push(curr_header);
+                    curr = next;
                 }
-            }
+                _ => return proof,
+            },
             dc_repr::RecordWitness::None => {
                 return proof;
             }

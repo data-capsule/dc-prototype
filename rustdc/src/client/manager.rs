@@ -6,11 +6,10 @@ use tokio_util::codec::Framed;
 
 use crate::shared::{
     crypto::{
-        hash_dc_metadata, serialize_pubkey, sign, verify_signature, Hash, PrivateKey,
-        PublicKey,
+        hash_dc_metadata, serialize_pubkey, sign, verify_signature, Hash, PrivateKey, PublicKey,
     },
+    dc_repr,
     request::{ClientCodec, InitRequest, ManageRequest, Request, Response},
-    dc_repr
 };
 
 use super::{initialize_connection, DCClientError};

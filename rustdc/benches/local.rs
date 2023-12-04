@@ -5,10 +5,11 @@ use datacapsule::{
         manager::ManagerConnection,
         writer::{WriterConnection, WriterOperation, WriterResponse},
     },
-    shared::dc_repr,
     shared::crypto::{
-        decrypt, hash_data, hash_record_header, sign, verify_signature, Hash, PrivateKey, PublicKey, SymmetricKey, Signature
+        decrypt, hash_data, hash_record_header, sign, verify_signature, Hash, PrivateKey,
+        PublicKey, Signature, SymmetricKey,
     },
+    shared::dc_repr,
 };
 use openssl::{
     ec::{EcGroup, EcKey},
@@ -91,15 +92,17 @@ async fn main() {
     for _ in 0..(TOTAL_RECORDS / RECORDS_PER_COMMIT) {
         for _ in 0..RECORDS_PER_COMMIT {
             let plaintext_body = rawdata[21 * i..21 * (i + 1)].to_vec();
-            write_ops.push(WriterOperation::Write((plaintext_body.clone(), prev_record_ptr, Vec::new())));
-            prev_record_ptr = hash_record_header(
-                &dc_repr::RecordHeader{ 
-                    dc_name: dc, 
-                    body_ptr: hash_data(&plaintext_body), 
-                    prev_record_ptr, 
-                    additional_record_ptrs: Vec::new()
-                }
-            );
+            write_ops.push(WriterOperation::Write((
+                plaintext_body.clone(),
+                prev_record_ptr,
+                Vec::new(),
+            )));
+            prev_record_ptr = hash_record_header(&dc_repr::RecordHeader {
+                dc_name: dc,
+                body_ptr: hash_data(&plaintext_body),
+                prev_record_ptr,
+                additional_record_ptrs: Vec::new(),
+            });
             i += 1;
         }
         write_ops.push(WriterOperation::Sign(prev_record_ptr));
