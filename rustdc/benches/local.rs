@@ -1,9 +1,14 @@
 use std::{net::SocketAddr, time::Instant};
 
-use datacapsule::client::{
-    manager::ManagerConnection,
-    reader::{ReaderConnection, ReaderOperation},
-    writer::{WriterConnection, WriterOperation, WriterResponse},
+use datacapsule::{
+    client::{
+        manager::ManagerConnection,
+        writer::{WriterConnection, WriterOperation, WriterResponse},
+    },
+    shared::dc_repr,
+    shared::crypto::{
+        decrypt, hash_data, hash_record_header, sign, verify_signature, Hash, PrivateKey, PublicKey, SymmetricKey, Signature
+    },
 };
 use openssl::{
     ec::{EcGroup, EcKey},
@@ -51,17 +56,24 @@ async fn main() {
     let mut wc = WriterConnection::new(
         dc,
         server_addr,
-        spubk,
+        spubk.clone(),
         cpubk.clone(),
-        ck,
+        ck.clone(),
         *b"1234567812345678",
-        [0; 32],
     )
     .await
     .unwrap();
-    let mut rc = ReaderConnection::new(dc, server_addr, *b"1234567812345678", cpubk)
-        .await
-        .unwrap();
+
+    let mut rc = WriterConnection::new(
+        dc,
+        server_addr,
+        spubk.clone(),
+        cpubk.clone(),
+        ck.clone(),
+        *b"1234567812345678",
+    )
+    .await
+    .unwrap();
 
     let mut rawdata = Vec::<u8>::new();
     let mut write_ops = Vec::new();
@@ -75,12 +87,22 @@ async fn main() {
         }
     }
     let mut i = 0;
+    let mut prev_record_ptr = dc;
     for _ in 0..(TOTAL_RECORDS / RECORDS_PER_COMMIT) {
         for _ in 0..RECORDS_PER_COMMIT {
-            write_ops.push(WriterOperation::Write(&rawdata[21 * i..21 * (i + 1)]));
+            let plaintext_body = rawdata[21 * i..21 * (i + 1)].to_vec();
+            write_ops.push(WriterOperation::Write((plaintext_body.clone(), prev_record_ptr, Vec::new())));
+            prev_record_ptr = hash_record_header(
+                &dc_repr::RecordHeader{ 
+                    dc_name: dc, 
+                    body_ptr: hash_data(&plaintext_body), 
+                    prev_record_ptr, 
+                    additional_record_ptrs: Vec::new()
+                }
+            );
             i += 1;
         }
-        write_ops.push(WriterOperation::Commit)
+        write_ops.push(WriterOperation::Sign(prev_record_ptr));
     }
 
     println!("Did setup in {:?}. DC: {:x?}", tt.elapsed(), dc);
@@ -94,7 +116,7 @@ async fn main() {
     let mut ops = Vec::new();
     for r in &write_reps {
         if let WriterResponse::Write(h) = r {
-            ops.push(ReaderOperation::Read(*h));
+            ops.push(WriterOperation::Read(*h));
         }
     }
     let mut read_reps = Vec::new();
@@ -106,7 +128,7 @@ async fn main() {
     let mut ops = Vec::new();
     for r in write_reps.iter().rev() {
         if let WriterResponse::Write(h) = r {
-            ops.push(ReaderOperation::Prove(*h));
+            ops.push(WriterOperation::Prove(*h));
         }
     }
     let mut prove_reps = Vec::new();
