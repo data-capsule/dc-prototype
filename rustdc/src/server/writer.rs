@@ -56,8 +56,7 @@ pub async fn process_writer(
             RWRequest::Write(record) => {
                 match store_record(&record, &mut bs, &mut hs) {
                     Ok(record_name) => {
-                        // TODO: check that signing_key is server's private signing key
-                        Response::WriteData(sign(&record_name, signing_key))
+                        Response::WriteData((record_name, sign(&record_name, signing_key)))
                     }
                     Err(e) => {
                         tracing::error!("store record error: {:?}", e);
@@ -79,9 +78,14 @@ pub async fn process_writer(
                             let hs2 = hs2.clone();
                             let ws2 = ws2.clone();
                             let _ = tokio::task::spawn_blocking(move || {
-                                update_ancestor_witnesses(&record_name, hs2, ws2);
+                                match update_ancestor_witnesses(&record_name, hs2, ws2) {
+                                    Ok(_) => (),
+                                    Err(e) => {
+                                        tracing::error!("update_ancestor_witnesses error: {:?}", e);
+                                    }
+                                }
                             });
-                            Response::WriteSign(sign(&record_name, signing_key))
+                            Response::WriteSign((record_name, sign(&record_name, signing_key)))
                         }
                         Err(e) => {
                             tracing::error!("store signature error: {:?}", e);
@@ -146,13 +150,28 @@ fn update_ancestor_witnesses(
     hs: Arc<Mutex<RecordHeaderStorage>>,
     ws: Arc<Mutex<RecordWitnessStorage>>,
 ) -> Result<(), DCServerError> {
-    let mut curr_wave: Vec<Hash> = Vec::from([*base_record_name]);
-    let mut dist_from_new_sig: u64 = 0;
+    let mut curr_wave: Vec<(Hash, Hash)> = Vec::new();  // (record_name, parent_record_name)
+    let base_record_header =
+        hs.lock()
+            .unwrap()
+            .get(base_record_name)?
+            .ok_or(DCServerError::MissingStorage(
+                "missing header for record named ...".into(),
+            ))?;
+    curr_wave.push((base_record_header.prev_record_ptr, *base_record_name));
+    curr_wave.append(
+        &mut base_record_header
+            .additional_record_ptrs
+            .iter()
+            .map(|p| (p.ptr, *base_record_name))
+            .collect(),
+    );
+    let mut dist_from_new_sig: u64 = 1;
 
     while !curr_wave.is_empty() {
-        let mut next_wave: Vec<Hash> = Vec::new();
-        for record_name in curr_wave.iter() {
-            let header =
+        let mut next_wave: Vec<(Hash, Hash)> = Vec::new();
+        for (record_name, parent_record_name) in curr_wave.iter() {
+            let record_header =
                 hs.lock()
                     .unwrap()
                     .get(record_name)?
@@ -160,7 +179,7 @@ fn update_ancestor_witnesses(
                         "missing header for record named ...".into(),
                     ))?;
             let new_proposed_witness =
-                dc_repr::RecordWitness::NextRecordPtr(*record_name, dist_from_new_sig);
+                dc_repr::RecordWitness::NextRecordPtr(*parent_record_name, dist_from_new_sig);
 
             // if new_proposed_witness is not closer than old_witness for this record,
             // then we know we can't get closer witnesses for ancestors of this record.
@@ -169,12 +188,12 @@ fn update_ancestor_witnesses(
                 .unwrap()
                 .update_record_witness(record_name, &new_proposed_witness)?;
             if new_proposed_witness.closer_than(&old_witness) {
-                next_wave.push(header.prev_record_ptr);
+                next_wave.push((record_header.prev_record_ptr, *record_name));
                 next_wave.append(
-                    &mut header
+                    &mut record_header
                         .additional_record_ptrs
                         .iter()
-                        .map(|p| p.ptr)
+                        .map(|p| (p.ptr, *record_name))
                         .collect(),
                 )
             }
@@ -203,18 +222,29 @@ fn best_effort_proof(
     loop {
         let witness_for_curr: dc_repr::RecordWitness = ws.get(&curr).ok().into();
         match witness_for_curr {
-            dc_repr::RecordWitness::Signature(signature) => {
-                proof.signature = Some((curr, signature));
-                return proof;
+            dc_repr::RecordWitness::Signature(signature) => match hs.get(&curr) {
+                Ok(Some(curr_header)) => {
+                    proof.chain.push(curr_header);
+                    proof.signature = Some((curr, signature));
+                    return proof;
+                }
+                _ => {
+                    // partial proof
+                    return proof;
+                }
             }
             dc_repr::RecordWitness::NextRecordPtr(next, _) => match hs.get(&curr) {
                 Ok(Some(curr_header)) => {
                     proof.chain.push(curr_header);
                     curr = next;
                 }
-                _ => return proof,
+                _ => {
+                    // partial proof
+                    return proof;
+                }
             },
             dc_repr::RecordWitness::None => {
+                // partial proof
                 return proof;
             }
         }

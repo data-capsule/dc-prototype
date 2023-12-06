@@ -6,7 +6,7 @@ use datacapsule::{
         writer::{WriterConnection, WriterOperation, WriterResponse},
     },
     shared::crypto::{
-        decrypt, hash_data, hash_record_header, sign, verify_signature, Hash, PrivateKey,
+        encrypt, decrypt, hash_data, hash_record_header, sign, verify_signature, Hash, PrivateKey,
         PublicKey, Signature, SymmetricKey,
     },
     shared::dc_repr,
@@ -54,13 +54,15 @@ async fn main() {
             .unwrap()
     };
 
+    let encryption_key: SymmetricKey = *b"1234567812345678";
+
     let mut wc = WriterConnection::new(
         dc,
         server_addr,
         spubk.clone(),
         cpubk.clone(),
         ck.clone(),
-        *b"1234567812345678",
+        encryption_key,
     )
     .await
     .unwrap();
@@ -71,7 +73,7 @@ async fn main() {
         spubk.clone(),
         cpubk.clone(),
         ck.clone(),
-        *b"1234567812345678",
+        encryption_key,
     )
     .await
     .unwrap();
@@ -92,17 +94,20 @@ async fn main() {
     for _ in 0..(TOTAL_RECORDS / RECORDS_PER_COMMIT) {
         for _ in 0..RECORDS_PER_COMMIT {
             let plaintext_body = rawdata[21 * i..21 * (i + 1)].to_vec();
+            let body = encrypt(&plaintext_body.clone(), &encryption_key);
+            let body_ptr = hash_data(&body);
             write_ops.push(WriterOperation::Write((
-                plaintext_body.clone(),
+                body,
                 prev_record_ptr,
                 Vec::new(),
             )));
-            prev_record_ptr = hash_record_header(&dc_repr::RecordHeader {
+            let record_name = hash_record_header(&dc_repr::RecordHeader {
                 dc_name: dc,
-                body_ptr: hash_data(&plaintext_body),
+                body_ptr,
                 prev_record_ptr,
                 additional_record_ptrs: Vec::new(),
             });
+            prev_record_ptr = record_name;
             i += 1;
         }
         write_ops.push(WriterOperation::Sign(prev_record_ptr));

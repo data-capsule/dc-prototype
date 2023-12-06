@@ -57,7 +57,7 @@ enum WriterSync {
 
 #[derive(Debug, Clone)]
 pub enum WriterOperation {
-    Write((dc_repr::RecordBody, Hash, Vec<dc_repr::AdditionalRecordPtr>)), // (plaintext_body, prev_record_ptr, addl_ptrs)
+    Write((dc_repr::RecordBody, Hash, Vec<dc_repr::AdditionalRecordPtr>)), // (body, prev_record_ptr, addl_ptrs)
     Sign(Hash),                                                            // record name
     Read(Hash),                                                            // ^
     Prove(Hash),                                                           // ^
@@ -66,8 +66,8 @@ pub enum WriterOperation {
 #[derive(Debug, Clone)]
 pub enum WriterResponse {
     Write(Hash),                                                // record name (hash pointer)
-    Sign(bool), // whether server was able to persist signature
-    Read(Option<(dc_repr::RecordBody, dc_repr::RecordHeader)>), // (plaintext_body, header)
+    Sign(bool),  // whether server was able to persist signature
+    Read(Option<(dc_repr::RecordBody, dc_repr::RecordHeader)>), // (body, header)
     Prove(bool), // whether server was able to return a proof
 }
 
@@ -155,23 +155,21 @@ impl WriterConnection {
         for op in operations {
             let (req, sync, record_name) = match op {
                 WriterOperation::Write((
-                    plaintext_body,
+                    body,
                     prev_record_ptr,
                     additional_record_ptrs,
                 )) => {
-                    // RECORD REQUEST
-                    // encrypt the data, add the hash of encrypted data to uncommitted hashes
-                    let body = encrypt(plaintext_body, &half.encryption_key);
+                    // let body = encrypt(plaintext_body, &half.encryption_key);
                     let body_ptr = hash_data(&body);
                     let header = dc_repr::RecordHeader {
                         dc_name: half.dc_name,
-                        body_ptr: body_ptr,
+                        body_ptr,
                         prev_record_ptr: *prev_record_ptr,
                         additional_record_ptrs: additional_record_ptrs.clone(),
                     };
                     let record_name = hash_record_header(&header);
                     (
-                        Request::RW(RWRequest::Write(dc_repr::Record { body, header })),
+                        Request::RW(RWRequest::Write(dc_repr::Record { body: body.to_vec(), header })),
                         WriterSync::Write,
                         record_name,
                     )
@@ -227,14 +225,14 @@ impl WriterConnection {
                 }
                 (Response::Failed, WriterSync::Read) => WriterResponse::Read(None),
                 (Response::Failed, WriterSync::Prove) => WriterResponse::Prove(false),
-                (Response::WriteData(ack), WriterSync::Write) => {
+                (Response::WriteData((record_name, ack)), WriterSync::Write) => {
                     if verify_signature(&ack, &record_name, &half.server_public_key) {
                         WriterResponse::Write(record_name)
                     } else {
                         return Err(DCClientError::BadSignature);
                     }
                 }
-                (Response::WriteSign(ack), WriterSync::Sign) => {
+                (Response::WriteSign((record_name, ack)), WriterSync::Sign) => {
                     if verify_signature(&ack, &record_name, &half.server_public_key) {
                         WriterResponse::Sign(true)
                     } else {
@@ -309,20 +307,21 @@ pub(crate) fn verify_proof(
                 ));
             }
 
-            let mut curr = first_in_chain;
-            while let Some(next) = iter.next() {
-                let curr_record_name = hash_record_header(&curr);
+            let mut prev_record_header = first_in_chain;
+            while let Some(curr_record_header) = iter.next() {
+                let prev_record_name = hash_record_header(&prev_record_header);
+                let curr_record_name = hash_record_header(&curr_record_header);
                 if temp_witness_cache.contains_key(&curr_record_name) {
                     return Ok(());
                 }
-                if next.prev_record_ptr == curr_record_name
-                    || next
+                if curr_record_header.prev_record_ptr == prev_record_name
+                    || curr_record_header
                         .additional_record_ptrs
                         .clone()
                         .into_iter()
-                        .any(|p| p.ptr == curr_record_name)
+                        .any(|p| p.ptr == prev_record_name)
                 {
-                    curr = next;
+                    prev_record_header = curr_record_header;
                 } else {
                     return Err(DCClientError::BadProof(
                         "bad proof for record_name ...".into(),
