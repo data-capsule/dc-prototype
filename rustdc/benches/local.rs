@@ -25,7 +25,7 @@ async fn keys(pk_file: &str) -> (EcKey<Private>, EcKey<Public>, EcKey<Public>) {
 }
 
 const TOTAL_RECORDS: usize = 100000;
-const RECORDS_PER_COMMIT: usize = 1000;
+const RECORDS_PER_COMMIT: usize = 10000;
 
 #[tokio::main]
 async fn main() {

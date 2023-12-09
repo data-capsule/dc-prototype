@@ -37,6 +37,7 @@ pub struct P2PReceiver {
     stream: SplitStream<Framed<TcpStream, P2PCodec>>
 }
 
+#[derive(Clone)]
 pub struct P2PSender {
     queues: HashMap<Name, mpsc::UnboundedSender<P2PMessageBody>>,
     mcast_groups: HashMap<Name, Vec<Name>>
