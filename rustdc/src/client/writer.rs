@@ -3,12 +3,13 @@ use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::{
     net::TcpStream,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
 };
 use tokio_util::codec::Framed;
+use quick_cache::sync::Cache;
 
 use crate::{
     client::DCClientError,
@@ -20,7 +21,7 @@ use crate::{
         crypto::hash_record_header,
         request::{ClientCodec, InitRequest, RWRequest, Request, Response},
     },
-    shared::{dc_repr, readstate::ReadState},
+    shared::dc_repr
 };
 
 use super::initialize_connection;
@@ -45,7 +46,7 @@ struct ReceiveHalf {
     encryption_key: SymmetricKey,
     server_public_key: PublicKey,
     writer_public_key: PublicKey,
-    // read_state: ReadState,
+    proven_hash_cache: Arc<Cache<Hash, ()>>
 }
 
 enum WriterSync {
@@ -79,6 +80,7 @@ impl WriterConnection {
         writer_public_key: PublicKey,
         writer_signing_key: PrivateKey,
         encryption_key: SymmetricKey,
+        proven_hash_cache: Arc<Cache<Hash, ()>>
     ) -> Result<Self, DCClientError> {
         let stream = initialize_connection(server_address, InitRequest::Write(dc_name)).await?;
         let (connection_w, connection_r) = stream.split();
@@ -97,7 +99,7 @@ impl WriterConnection {
                 encryption_key,
                 server_public_key,
                 writer_public_key,
-                // read_state: ReadState::new(),
+                proven_hash_cache
             },
         })
     }
@@ -255,7 +257,7 @@ impl WriterConnection {
                         &record_name,
                         &best_effort_proof,
                         &half.writer_public_key,
-                        // &mut half.read_state,
+                        half.proven_hash_cache.clone()
                     )?;
                     WriterResponse::Prove(true)
                 }
@@ -271,11 +273,8 @@ pub(crate) fn verify_proof(
     record_name_to_prove: &Hash,
     best_effort_proof: &dc_repr::BestEffortProof,
     writer_public_key: &PublicKey,
-    // read_state: &mut ReadState,
+    proven_hash_cache: Arc<Cache<Hash, ()>>
 ) -> Result<(), DCClientError> {
-    // TODO: actual witness cache
-    let mut temp_witness_cache: HashMap<Hash, dc_repr::RecordWitness> = HashMap::new(); // record_name : witness
-
     if let Some((signed_record_name, signature)) = &best_effort_proof.signature {
         // if server returns a bad signature, assume rest of best-effort-proof doesn't help
         // (e.g. server is malicious) and end early
@@ -285,10 +284,7 @@ pub(crate) fn verify_proof(
             ));
         }
 
-        temp_witness_cache.insert(
-            *signed_record_name,
-            dc_repr::RecordWitness::Signature(signature.to_vec()),
-        );
+        proven_hash_cache.insert(*signed_record_name, ());
 
         if *signed_record_name == *record_name_to_prove {
             return Ok(());
@@ -311,7 +307,7 @@ pub(crate) fn verify_proof(
             while let Some(curr_record_header) = iter.next() {
                 let prev_record_name = hash_record_header(&prev_record_header);
                 let curr_record_name = hash_record_header(&curr_record_header);
-                if temp_witness_cache.contains_key(&curr_record_name) {
+                if let Some(_) = proven_hash_cache.get(&curr_record_name) {
                     return Ok(());
                 }
                 // if curr_record_header.prev_record_ptr == prev_record_name

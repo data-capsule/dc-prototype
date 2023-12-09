@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, time::Instant};
+use std::{net::SocketAddr, time::Instant, sync::Arc};
 
 use datacapsule::{
     client::{
@@ -9,7 +9,7 @@ use datacapsule::{
         encrypt, decrypt, hash_data, hash_record_header, sign, verify_signature, Hash, PrivateKey,
         PublicKey, Signature, SymmetricKey,
     },
-    shared::dc_repr,
+    shared::{dc_repr, config},
 };
 use openssl::{
     ec::{EcGroup, EcKey},
@@ -17,6 +17,7 @@ use openssl::{
     pkey::{Private, Public},
 };
 use tokio::{fs::File, io::AsyncReadExt};
+use quick_cache::sync::Cache;
 
 async fn keys(pk_file: &str) -> (EcKey<Private>, EcKey<Public>, EcKey<Public>) {
     let group = &EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
@@ -56,6 +57,8 @@ async fn main() {
 
     let encryption_key: SymmetricKey = *b"1234567812345678";
 
+    let proven_hash_cache = Arc::new(Cache::new(config::CACHE_SIZE));
+
     let mut wc = WriterConnection::new(
         dc,
         server_addr,
@@ -63,6 +66,7 @@ async fn main() {
         cpubk.clone(),
         ck.clone(),
         encryption_key,
+        proven_hash_cache.clone()
     )
     .await
     .unwrap();
@@ -74,6 +78,7 @@ async fn main() {
         cpubk.clone(),
         ck.clone(),
         encryption_key,
+        proven_hash_cache.clone()
     )
     .await
     .unwrap();
