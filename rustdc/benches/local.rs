@@ -57,8 +57,6 @@ async fn main() {
 
     let encryption_key: SymmetricKey = *b"1234567812345678";
 
-    let proven_hash_cache = Arc::new(Cache::new(config::CACHE_SIZE));
-
     let mut wc = WriterConnection::new(
         dc,
         server_addr,
@@ -66,7 +64,6 @@ async fn main() {
         cpubk.clone(),
         ck.clone(),
         encryption_key,
-        proven_hash_cache.clone()
     )
     .await
     .unwrap();
@@ -78,7 +75,6 @@ async fn main() {
         cpubk.clone(),
         ck.clone(),
         encryption_key,
-        proven_hash_cache.clone()
     )
     .await
     .unwrap();

@@ -19,9 +19,9 @@ use crate::{
     },
     shared::{
         crypto::hash_record_header,
-        request::{ClientCodec, InitRequest, RWRequest, Request, Response},
+        request::{ClientCodec, InitRequest, RWRequest, Request, Response}
     },
-    shared::dc_repr
+    shared::{dc_repr, config}
 };
 
 use super::initialize_connection;
@@ -46,7 +46,7 @@ struct ReceiveHalf {
     encryption_key: SymmetricKey,
     server_public_key: PublicKey,
     writer_public_key: PublicKey,
-    proven_hash_cache: Arc<Cache<Hash, ()>>
+    proven_hash_cache: Cache<Hash, ()>
 }
 
 enum WriterSync {
@@ -80,7 +80,6 @@ impl WriterConnection {
         writer_public_key: PublicKey,
         writer_signing_key: PrivateKey,
         encryption_key: SymmetricKey,
-        proven_hash_cache: Arc<Cache<Hash, ()>>
     ) -> Result<Self, DCClientError> {
         let stream = initialize_connection(server_address, InitRequest::Write(dc_name)).await?;
         let (connection_w, connection_r) = stream.split();
@@ -99,7 +98,7 @@ impl WriterConnection {
                 encryption_key,
                 server_public_key,
                 writer_public_key,
-                proven_hash_cache
+                proven_hash_cache: Cache::new(config::CACHE_SIZE)
             },
         })
     }
@@ -257,7 +256,7 @@ impl WriterConnection {
                         &record_name,
                         &best_effort_proof,
                         &half.writer_public_key,
-                        half.proven_hash_cache.clone()
+                        &half.proven_hash_cache
                     )?;
                     WriterResponse::Prove(true)
                 }
@@ -273,7 +272,7 @@ pub(crate) fn verify_proof(
     record_name_to_prove: &Hash,
     best_effort_proof: &dc_repr::BestEffortProof,
     writer_public_key: &PublicKey,
-    proven_hash_cache: Arc<Cache<Hash, ()>>
+    proven_hash_cache: &Cache<Hash, ()>
 ) -> Result<(), DCClientError> {
     if let Some((signed_record_name, signature)) = &best_effort_proof.signature {
         // if server returns a bad signature, assume rest of best-effort-proof doesn't help
@@ -308,6 +307,15 @@ pub(crate) fn verify_proof(
                 let prev_record_name = hash_record_header(&prev_record_header);
                 let curr_record_name = hash_record_header(&curr_record_header);
                 if let Some(_) = proven_hash_cache.get(&curr_record_name) {
+                    // found proof for curr_record_name (and every preceding record in chain, including the record to prove)
+                    let mut proven_iter = best_effort_proof.chain.clone().into_iter();
+                    while let Some(proven_record_header) = proven_iter.next() {
+                        let proven_record_name = hash_record_header(&proven_record_header);
+                        proven_hash_cache.insert(proven_record_name, ());
+                        if proven_record_name == curr_record_name {
+                            break;
+                        }
+                    }
                     return Ok(());
                 }
                 // if curr_record_header.prev_record_ptr == prev_record_name

@@ -5,12 +5,13 @@ use futures::SinkExt;
 use sled::Db;
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
+use quick_cache::sync::Cache;
 
 use crate::shared::crypto::{
     deserialize_pubkey, hash_record_header, sign, verify_signature, Hash, PrivateKey, PublicKey,
     Signature,
 };
-use crate::shared::dc_repr;
+use crate::shared::{dc_repr, config};
 use crate::shared::request::{RWRequest, Request, Response, ServerCodec};
 
 use super::storage::{
@@ -33,6 +34,8 @@ pub async fn process_writer(
         Some(v) => deserialize_pubkey(&v),
         None => return Err(DCServerError::MissingStorage("writer_pk".into())),
     };
+
+    let client_proven_hash_cache: Cache<Hash, ()> = Cache::new(config::CACHE_SIZE);
 
     // successfully initialized, start processing real requests
     stream.send(Response::Init).await?;
@@ -95,7 +98,7 @@ pub async fn process_writer(
                 }
             },
             RWRequest::Proof(record_name) => {
-                Response::ReadProof(best_effort_proof(&record_name, &mut hs, &mut ws))
+                Response::ReadProof(best_effort_proof(&record_name, &mut hs, &mut ws, &client_proven_hash_cache))
             }
         };
         stream.feed(resp).await?
@@ -199,36 +202,44 @@ fn best_effort_proof(
     record_name: &Hash,
     hs: &mut RecordHeaderStorage,
     ws: &mut RecordWitnessStorage,
+    client_proven_hash_cache: &Cache<Hash, ()>
 ) -> dc_repr::BestEffortProof {
     let mut proof = dc_repr::BestEffortProof {
         chain: Vec::new(),
         signature: None,
     };
     let mut curr = *record_name;
-    // TODO: organize this loop better
     loop {
+        if let Ok(Some(curr_header)) = hs.get(&curr) {
+            proof.chain.push(curr_header);
+        } else {
+            // partial proof
+            return proof;
+        }
+
+        // optimization: mirror client cache
+        if let Some(_) = client_proven_hash_cache.get(&curr) {
+            // completed proof
+            // update client_proven_hash_cache to mirror client's instance
+            for proven_record_header in &proof.chain {
+                client_proven_hash_cache.insert(hash_record_header(&proven_record_header), ());
+            }
+            return proof
+        }
+
         let witness_for_curr: dc_repr::RecordWitness = ws.get(&curr).ok().into();
         match witness_for_curr {
-            dc_repr::RecordWitness::Signature(signature) => match hs.get(&curr) {
-                Ok(Some(curr_header)) => {
-                    proof.chain.push(curr_header);
-                    proof.signature = Some((curr, signature));
-                    return proof;
+            dc_repr::RecordWitness::Signature(signature) => {
+                proof.signature = Some((curr, signature));
+                // completed proof
+                // update proven_hash_cache to mirror client's instance
+                for proven_record_header in &proof.chain {
+                    client_proven_hash_cache.insert(hash_record_header(&proven_record_header), ());
                 }
-                _ => {
-                    // partial proof
-                    return proof;
-                }
+                return proof
             }
-            dc_repr::RecordWitness::NextRecordPtr(next, _) => match hs.get(&curr) {
-                Ok(Some(curr_header)) => {
-                    proof.chain.push(curr_header);
-                    curr = next;
-                }
-                _ => {
-                    // partial proof
-                    return proof;
-                }
+            dc_repr::RecordWitness::NextRecordPtr(next, _) => {
+                curr = next;
             },
             dc_repr::RecordWitness::None => {
                 // partial proof
