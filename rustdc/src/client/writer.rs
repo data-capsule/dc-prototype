@@ -57,7 +57,7 @@ enum WriterSync {
 
 #[derive(Debug, Clone)]
 pub enum WriterOperation {
-    Write((dc_repr::RecordBody, Hash, Vec<dc_repr::AdditionalRecordPtr>)), // (body, prev_record_ptr, addl_ptrs)
+    Write((dc_repr::RecordBody, Vec<dc_repr::RecordBackPtr>)), // (body, record_backptrs)
     Sign(Hash),                                                            // record name
     Read(Hash),                                                            // ^
     Prove(Hash),                                                           // ^
@@ -156,16 +156,13 @@ impl WriterConnection {
             let (req, sync, record_name) = match op {
                 WriterOperation::Write((
                     body,
-                    prev_record_ptr,
-                    additional_record_ptrs,
+                    record_backptrs,
                 )) => {
                     // let body = encrypt(plaintext_body, &half.encryption_key);
                     let body_ptr = hash_data(&body);
                     let header = dc_repr::RecordHeader {
-                        dc_name: half.dc_name,
                         body_ptr,
-                        prev_record_ptr: *prev_record_ptr,
-                        additional_record_ptrs: additional_record_ptrs.clone(),
+                        record_backptrs: record_backptrs.clone(),
                     };
                     let record_name = hash_record_header(&header);
                     (
@@ -225,12 +222,15 @@ impl WriterConnection {
                 }
                 (Response::Failed, WriterSync::Read) => WriterResponse::Read(None),
                 (Response::Failed, WriterSync::Prove) => WriterResponse::Prove(false),
-                (Response::WriteData((record_name, ack)), WriterSync::Write) => {
-                    if verify_signature(&ack, &record_name, &half.server_public_key) {
-                        WriterResponse::Write(record_name)
-                    } else {
-                        return Err(DCClientError::BadSignature);
-                    }
+                // (Response::WriteData((record_name, ack)), WriterSync::Write) => {
+                //     if verify_signature(&ack, &record_name, &half.server_public_key) {
+                //         WriterResponse::Write(record_name)
+                //     } else {
+                //         return Err(DCClientError::BadSignature);
+                //     }
+                // }
+                (Response::WriteData(record_name), WriterSync::Write) => {
+                    WriterResponse::Write(record_name)
                 }
                 (Response::WriteSign((record_name, ack)), WriterSync::Sign) => {
                     if verify_signature(&ack, &record_name, &half.server_public_key) {
@@ -314,9 +314,10 @@ pub(crate) fn verify_proof(
                 if temp_witness_cache.contains_key(&curr_record_name) {
                     return Ok(());
                 }
-                if curr_record_header.prev_record_ptr == prev_record_name
-                    || curr_record_header
-                        .additional_record_ptrs
+                // if curr_record_header.prev_record_ptr == prev_record_name
+                //     || curr_record_header
+                //         .additional_record_ptrs
+                if curr_record_header.record_backptrs
                         .clone()
                         .into_iter()
                         .any(|p| p.ptr == prev_record_name)

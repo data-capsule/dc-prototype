@@ -96,16 +96,14 @@ async fn main() {
             let plaintext_body = rawdata[21 * i..21 * (i + 1)].to_vec();
             let body = encrypt(&plaintext_body.clone(), &encryption_key);
             let body_ptr = hash_data(&body);
+            let record_backptrs = Vec::from([dc_repr::RecordBackPtr{ptr: prev_record_ptr, offset: Some(1) }]);
             write_ops.push(WriterOperation::Write((
                 body,
-                prev_record_ptr,
-                Vec::new(),
+                record_backptrs.clone(),
             )));
             let record_name = hash_record_header(&dc_repr::RecordHeader {
-                dc_name: dc,
                 body_ptr,
-                prev_record_ptr,
-                additional_record_ptrs: Vec::new(),
+                record_backptrs,
             });
             prev_record_ptr = record_name;
             i += 1;

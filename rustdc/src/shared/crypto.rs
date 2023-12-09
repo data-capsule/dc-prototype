@@ -65,11 +65,11 @@ TODO: this method is ugly. make return result
 */
 pub fn hash_record_header(record_header: &dc_repr::RecordHeader) -> Hash {
     let mut hasher = Hasher::new(MessageDigest::sha256()).expect("hash");
-    hasher.update(&record_header.dc_name).expect("hash");
+    // hasher.update(&record_header.dc_name).expect("hash");
     hasher.update(&record_header.body_ptr).expect("hash");
-    hasher.update(&record_header.prev_record_ptr).expect("hash");
-    for additional_record_ptr in &record_header.additional_record_ptrs {
-        hasher.update(&additional_record_ptr.ptr).expect("hash");
+    // hasher.update(&record_header.prev_record_ptr).expect("hash");
+    for record_backptr in &record_header.record_backptrs {
+        hasher.update(&record_backptr.ptr).expect("hash");
         // TODO: hash additional_record_ptr.offset
     }
     let res = hasher.finish().expect("hash");

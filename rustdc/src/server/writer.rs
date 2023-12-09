@@ -56,7 +56,8 @@ pub async fn process_writer(
             RWRequest::Write(record) => {
                 match store_record(&record, &mut bs, &mut hs) {
                     Ok(record_name) => {
-                        Response::WriteData((record_name, sign(&record_name, signing_key)))
+                        // Response::WriteData((record_name, sign(&record_name, signing_key)))
+                        Response::WriteData(record_name)
                     }
                     Err(e) => {
                         tracing::error!("store record error: {:?}", e);
@@ -134,12 +135,12 @@ fn read_record(
 ) -> Result<dc_repr::Record, DCServerError> {
     // TODO: organize error types/messages
     let header = hs.get(record_name)?.ok_or(DCServerError::MissingStorage(
-        "missing header for record named ...".into(),
+        format!("missing header for record named {:?}", record_name).into(),
     ))?;
     let body = bs
         .get(&header.body_ptr)?
         .ok_or(DCServerError::MissingStorage(
-            "missing body for record named ...".into(),
+            format!("missing body for record named {:?}", record_name).into(),
         ))?;
     Ok(dc_repr::Record { body, header })
 }
@@ -156,12 +157,12 @@ fn update_ancestor_witnesses(
             .unwrap()
             .get(base_record_name)?
             .ok_or(DCServerError::MissingStorage(
-                "missing header for record named ...".into(),
+                format!("missing header for record named {:?}", base_record_name).into(),
             ))?;
-    curr_wave.push((base_record_header.prev_record_ptr, *base_record_name));
+    // curr_wave.push((base_record_header.prev_record_ptr, *base_record_name));
     curr_wave.append(
         &mut base_record_header
-            .additional_record_ptrs
+            .record_backptrs
             .iter()
             .map(|p| (p.ptr, *base_record_name))
             .collect(),
@@ -176,7 +177,7 @@ fn update_ancestor_witnesses(
                     .unwrap()
                     .get(record_name)?
                     .ok_or(DCServerError::MissingStorage(
-                        "missing header for record named ...".into(),
+                        format!("missing header for record named {:?}", record_name).into(),
                     ))?;
             let new_proposed_witness =
                 dc_repr::RecordWitness::NextRecordPtr(*parent_record_name, dist_from_new_sig);
@@ -188,10 +189,10 @@ fn update_ancestor_witnesses(
                 .unwrap()
                 .update_record_witness(record_name, &new_proposed_witness)?;
             if new_proposed_witness.closer_than(&old_witness) {
-                next_wave.push((record_header.prev_record_ptr, *record_name));
+                // next_wave.push((record_header.prev_record_ptr, *record_name));
                 next_wave.append(
                     &mut record_header
-                        .additional_record_ptrs
+                        .record_backptrs
                         .iter()
                         .map(|p| (p.ptr, *record_name))
                         .collect(),

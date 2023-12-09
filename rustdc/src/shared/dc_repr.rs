@@ -22,16 +22,16 @@ pub type RecordBody = Vec<u8>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RecordHeader {
-    pub dc_name: Hash, // "GDP name"
+    // pub dc_name: Hash, // "GDP name"
     pub body_ptr: Hash,
-    pub prev_record_ptr: Hash,
-    pub additional_record_ptrs: Vec<AdditionalRecordPtr>,
+    // pub prev_record_ptr: Hash,
+    pub record_backptrs: Vec<RecordBackPtr>,
 }
 
 // TODO: not super sure about this
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AdditionalRecordPtr {
-    pub ptr: Hash,
+pub struct RecordBackPtr {
+    pub ptr: Hash, // hash of pointed-to record header
     pub offset: Option<u64>, // num hops from current record to this `ptr`
 }
 

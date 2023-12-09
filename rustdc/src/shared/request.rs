@@ -25,8 +25,11 @@ pub enum Response {
     ManageRead(dc_repr::Metadata),
     ReadRecord(dc_repr::Record),
     ReadProof(dc_repr::BestEffortProof),
-    WriteData((Hash, Signature)), // server durability ack (server-signed record name)
-    WriteSign((Hash, Signature)), // ^
+    // TODO: batch server durability acks with separate `Ack(Vec<(Hash, Signature)>)`?
+    // NOTE: temporarily changing Response::WriteData to match experimental API for benchmarking
+    // WriteData((Hash, Signature)), // server durability ack (server-signed record name)
+    WriteData(Hash),
+    WriteSign((Hash, Signature)), // server durability ack (server-signed record name)
     SubscribeCommits(Vec<(Hash, Signature)>), // freshest commits
     SubscribeRecords(Vec<Hash>, Hash), // records in a commit, and prev commit
     Failed,               // if any operation could not complete
