@@ -29,13 +29,6 @@ pub async fn process_writer(
     let mut hs = RecordHeaderStorage::new(&db, dc_name)?;
     let mut ws = RecordWitnessStorage::new(&db, dc_name)?;
 
-    // separate db connection for use by concurrent calls to `update_ancestor_witnesses`
-    // without slowing down main loop.
-    // TODO: would it be more or less efficient to just directly open a new connection on every invocation of update_ancestor_witnesses?
-    // TODO: do we need to use tokio::sync::Mutex instead of std?
-    let hs2 = Arc::new(Mutex::new(RecordHeaderStorage::new(&db, dc_name)?));
-    let ws2 = Arc::new(Mutex::new(RecordWitnessStorage::new(&db, dc_name)?));
-
     let writer_pk = match DCMetadataStorage::get_writer_pk(&db, dc_name)? {
         Some(v) => deserialize_pubkey(&v),
         None => return Err(DCServerError::MissingStorage("writer_pk".into())),
@@ -75,9 +68,8 @@ pub async fn process_writer(
                         &dc_repr::RecordWitness::Signature(signature),
                     ) {
                         Ok(_) => {
-                            // TODO: check correctness
-                            let hs2 = hs2.clone();
-                            let ws2 = ws2.clone();
+                            let hs2 = hs.clone();
+                            let ws2 = ws.clone();
                             let _ = tokio::task::spawn_blocking(move || {
                                 match update_ancestor_witnesses(&record_name, hs2, ws2) {
                                     Ok(_) => (),
@@ -148,14 +140,12 @@ fn read_record(
 // TODO: better error handling? shouldn't affect eventual correctness but might affect perf
 fn update_ancestor_witnesses(
     base_record_name: &Hash,
-    hs: Arc<Mutex<RecordHeaderStorage>>,
-    ws: Arc<Mutex<RecordWitnessStorage>>,
+    hs: RecordHeaderStorage,
+    mut ws: RecordWitnessStorage,
 ) -> Result<(), DCServerError> {
     let mut curr_wave: Vec<(Hash, Hash)> = Vec::new();  // (record_name, parent_record_name)
     let base_record_header =
-        hs.lock()
-            .unwrap()
-            .get(base_record_name)?
+        hs.get(base_record_name)?
             .ok_or(DCServerError::MissingStorage(
                 format!("missing header for record named {:?}", base_record_name).into(),
             ))?;
@@ -173,9 +163,7 @@ fn update_ancestor_witnesses(
         let mut next_wave: Vec<(Hash, Hash)> = Vec::new();
         for (record_name, parent_record_name) in curr_wave.iter() {
             let record_header =
-                hs.lock()
-                    .unwrap()
-                    .get(record_name)?
+                hs.get(record_name)?
                     .ok_or(DCServerError::MissingStorage(
                         format!("missing header for record named {:?}", record_name).into(),
                     ))?;
@@ -185,8 +173,6 @@ fn update_ancestor_witnesses(
             // if new_proposed_witness is not closer than old_witness for this record,
             // then we know we can't get closer witnesses for ancestors of this record.
             let old_witness = ws
-                .lock()
-                .unwrap()
                 .update_record_witness(record_name, &new_proposed_witness)?;
             if new_proposed_witness.closer_than(&old_witness) {
                 // next_wave.push((record_header.prev_record_ptr, *record_name));

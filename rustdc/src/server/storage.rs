@@ -14,6 +14,7 @@ fn open_tree(db: &Db, prefix: u8, dc_name: &Hash) -> Result<Tree, Error> {
 
 // key: datacapsule name
 // value: datacapsule metadata
+#[derive(Clone)]
 pub struct DCMetadataStorage(Tree);
 impl DCMetadataStorage {
     pub fn new(db: &Db) -> Result<Self, Error> {
@@ -40,6 +41,7 @@ impl DCMetadataStorage {
 
 // key: record name (hash/pointer of record header)
 // value: record header
+#[derive(Clone)]
 pub struct RecordHeaderStorage(Tree);
 impl RecordHeaderStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
@@ -66,6 +68,7 @@ impl RecordHeaderStorage {
 
 // key: hash/pointer of record **body**, NOT record name / hash of header
 // value: record body (encrypted)
+#[derive(Clone)]
 pub struct RecordBodyStorage(Tree);
 impl RecordBodyStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
@@ -88,6 +91,7 @@ impl RecordBodyStorage {
 
 // key: record name (hash/pointer of record header)
 // value: witness (see dc_repr::RecordWitness)
+#[derive(Clone)]
 pub struct RecordWitnessStorage(Tree);
 impl RecordWitnessStorage {
     pub fn new(db: &Db, dc_name: &Hash) -> Result<Self, Error> {
