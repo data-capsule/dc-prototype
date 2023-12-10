@@ -14,7 +14,7 @@ use fakep2p::{P2PComm, P2PConfig, P2PMessageBody, P2PReceiver, P2PSender};
 use super::writer::handle_client;
 
 #[derive(Clone)]
-pub(crate) struct ServerContext {
+pub struct ServerContext {
     pub server_name: String,
     pub db: Db,
     pub pk: PrivateKey,
