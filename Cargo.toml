@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
-    "rustdc",
+    "rexpapi",
+    "rbaseapi",
     "fakep2p"
 ]

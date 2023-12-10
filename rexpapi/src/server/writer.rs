@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use fakep2p::{P2PMessageBody, P2PSender};
 use postcard::{from_bytes, to_stdvec};
 use sled::Db;
@@ -65,7 +67,9 @@ pub async fn handle_client(
                 break;
             }
         };
+        let tt = Instant::now();
         let many_responses: Vec<Response> = many_requests.into_iter().map(|r| request_to_response(&server_ctx, &mut ms, &mut ctx, r)).collect();
+        println!("processing time: {:?}", tt.elapsed());
         let resp = to_stdvec(&many_responses).unwrap(); // TODO: handle well
         let resp = P2PMessageBody {
             dest: client_name,

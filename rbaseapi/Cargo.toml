@@ -1,5 +1,5 @@
 [package]
-name = "rustdc"
+name = "rbaseapi"
 version = "0.1.0"
 edition = "2021"
 
@@ -40,8 +40,7 @@ tokio-stream = "0.1.14"
 serde = "1.0.193"
 postcard = {version = "1.0.8", features = ["use-std"]}
 sled = "0.34.7"
-fakep2p = { path = "../fakep2p" }
-serde_json = "1.0.108"
+quick_cache = "0.4.0"
 
 [dev-dependencies]
 criterion = "0.5.1"
