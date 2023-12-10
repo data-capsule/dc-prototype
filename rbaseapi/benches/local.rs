@@ -1,23 +1,19 @@
-use std::{net::SocketAddr, time::Instant, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Instant};
 
 use datacapsule::{
-    client::{
-        manager::ManagerConnection,
-        writer::{WriterConnection, WriterOperation, WriterResponse},
-    },
     shared::crypto::{
-        encrypt, decrypt, hash_data, hash_record_header, sign, verify_signature, Hash, PrivateKey,
+        decrypt, encrypt, hash_data, hash_record_header, sign, verify_signature, Hash, PrivateKey,
         PublicKey, Signature, SymmetricKey,
     },
-    shared::{dc_repr, config},
+    shared::{config, dc_repr},
 };
 use openssl::{
     ec::{EcGroup, EcKey},
     nid::Nid,
     pkey::{Private, Public},
 };
-use tokio::{fs::File, io::AsyncReadExt};
 use quick_cache::sync::Cache;
+use tokio::{fs::File, io::AsyncReadExt};
 
 async fn keys(pk_file: &str) -> (EcKey<Private>, EcKey<Public>, EcKey<Public>) {
     let group = &EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
@@ -36,6 +32,7 @@ const RECORDS_PER_COMMIT: usize = 1000;
 
 #[tokio::main]
 async fn main() {
+    /*
     let tt = Instant::now();
 
     let server_addr = "127.0.0.1:6142".parse::<SocketAddr>().unwrap();
@@ -146,4 +143,5 @@ async fn main() {
         tt.elapsed(),
         prove_reps.len()
     );
+    */
 }

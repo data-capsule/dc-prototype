@@ -31,7 +31,7 @@ pub struct RecordHeader {
 // TODO: not super sure about this
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RecordBackPtr {
-    pub ptr: Hash, // hash of pointed-to record header
+    pub ptr: Hash,           // hash of pointed-to record header
     pub offset: Option<u64>, // num hops from current record to this `ptr`
 }
 

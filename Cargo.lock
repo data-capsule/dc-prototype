@@ -875,11 +875,13 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "criterion",
+ "fakep2p",
  "futures",
  "openssl",
  "postcard",
  "quick_cache",
  "serde",
+ "serde_json",
  "sled",
  "tokio",
  "tokio-stream",

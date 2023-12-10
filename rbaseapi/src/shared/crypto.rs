@@ -6,7 +6,6 @@ use openssl::{
     rand::rand_bytes,
     symm::{Cipher, Crypter, Mode},
 };
-use serde::{Deserialize, Serialize};
 
 use crate::shared::config::FANOUT;
 use crate::shared::dc_repr;
@@ -26,14 +25,6 @@ pub type HashNode = [Hash; FANOUT];
 pub const NULL_HASH: Hash = [0; 32];
 
 pub type Signature = Vec<u8>;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DataCapsule {
-    pub creator_pub_key: Vec<u8>,
-    pub writer_pub_key: Vec<u8>,
-    pub description: String,
-    pub signature: Signature,
-}
 
 pub fn serialize_pubkey(key: &PublicKey) -> Vec<u8> {
     key.public_key_to_der().unwrap()

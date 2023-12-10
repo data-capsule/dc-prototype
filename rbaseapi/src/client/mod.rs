@@ -1,16 +1,14 @@
-pub mod manager;
-// pub mod reader;
-pub mod subscriber;
-pub mod writer;
+use std::error::Error;
 
-use std::{io, net::SocketAddr};
+use fakep2p::{P2PComm, P2PConfig};
+use tokio::fs;
 
-use futures::{SinkExt, StreamExt};
-use openssl::error::ErrorStack;
-use tokio::net::TcpStream;
-use tokio_util::codec::Framed;
+use crate::{
+    client::p2pclient::ClientConnection,
+    shared::crypto::{PrivateKey, PublicKey, SymmetricKey},
+};
 
-use crate::shared::request::{ClientCodec, InitRequest, Request, Response};
+pub mod p2pclient;
 
 #[derive(Debug)]
 pub enum DCClientError {
@@ -18,42 +16,59 @@ pub enum DCClientError {
     MismatchedHash,
     BadSignature,
     BadProof(String),
-    OpenSSL(ErrorStack),
-    IO(io::Error),
+    OpenSSL(openssl::error::ErrorStack),
+    IO(std::io::Error),
     StreamEnded,
     Other(String),
 }
 
-impl From<io::Error> for DCClientError {
-    fn from(value: io::Error) -> Self {
+impl From<std::io::Error> for DCClientError {
+    fn from(value: std::io::Error) -> Self {
         Self::IO(value)
     }
 }
 
-impl From<ErrorStack> for DCClientError {
-    fn from(value: ErrorStack) -> Self {
+impl From<openssl::error::ErrorStack> for DCClientError {
+    fn from(value: openssl::error::ErrorStack) -> Self {
         Self::OpenSSL(value)
     }
 }
 
-async fn next_response(
-    stream: &mut Framed<TcpStream, ClientCodec>,
-) -> Result<Response, DCClientError> {
-    match stream.next().await {
-        Some(r) => Ok(r?),
-        None => Err(DCClientError::StreamEnded),
-    }
-}
+pub async fn run_client(
+    name: &str,
+    signing_key: PrivateKey,
+    signing_pub_key: PublicKey,
+    encryption_key: SymmetricKey,
+    net_config: &str,
+) -> Result<ClientConnection, Box<dyn Error>> {
+    let net_config = fs::read_to_string(net_config).await?;
+    let net_config: P2PConfig = serde_json::from_str(&net_config)?;
 
-async fn initialize_connection(
-    server_address: SocketAddr,
-    req: InitRequest,
-) -> Result<Framed<TcpStream, ClientCodec>, DCClientError> {
-    let tt = TcpStream::connect(server_address).await?;
-    let mut stream = Framed::new(tt, ClientCodec::new());
-    stream.send(Request::Init(req)).await?;
-    match next_response(&mut stream).await? {
-        Response::Init => Ok(stream),
-        _ => Err(DCClientError::ServerError("bad init".into())),
-    }
+    let mut comm = P2PComm::new(name.into(), net_config).await?;
+
+    let (client, to_client) = ClientConnection::new(
+        name,
+        signing_key,
+        signing_pub_key,
+        encryption_key,
+        comm.new_sender(),
+    );
+
+    tokio::spawn(async move {
+        loop {
+            let to_client = to_client.clone();
+            let mut rcv = comm.accept().await.unwrap();
+            tokio::spawn(async move {
+                loop {
+                    let m = match rcv.receive().await {
+                        Some(Ok(m)) => m,
+                        _ => return,
+                    };
+                    to_client.send(m).unwrap();
+                }
+            });
+        }
+    });
+
+    Ok(client)
 }
