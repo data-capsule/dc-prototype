@@ -58,32 +58,15 @@ pub async fn handle_client(
             None => break,
         };
         let client_name = req.sender;
-        let req: Request = match from_bytes(&req.content) {
+        let many_requests: Vec<Request> = match from_bytes(&req.content) {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("could not decode: {:?}", e);
                 break;
             }
         };
-        let resp = match (req, &mut ctx) {
-            (Request::NewDataCapsule(dc), _) => handle_create(dc, &mut ms, &server_ctx.pk),
-            (Request::ReadMetadata(dc), _) => handle_read_meta(dc, &ms),
-            (Request::Init(dc_name), _) => handle_init(dc_name, &server_ctx.db, &mut ctx),
-            (Request::Write(data), Some(ctx)) => handle_write(data, ctx),
-            (Request::Commit(additional_hash, sig), Some(ctx)) => {
-                handle_commit(ctx, &server_ctx.pk, &additional_hash, &sig)
-            }
-            (Request::Read(hash), Some(ctx)) => handle_read(hash, &ctx.ds),
-            (Request::Proof(hash), Some(ctx)) => build_proof(hash, ctx),
-            (Request::FreshestCommits, Some(ctx)) => handle_freshness(&ctx.os),
-            (Request::Records(hash), Some(ctx)) => get_all_leaves(&ctx.ns, &hash),
-            _ => {
-                // a request that needs to be in the context of a dc, but
-                // no init message has been received
-                Response::Failed
-            }
-        };
-        let resp = to_stdvec(&resp).unwrap(); // TODO: handle well
+        let many_responses: Vec<Response> = many_requests.into_iter().map(|r| request_to_response(&server_ctx, &mut ms, &mut ctx, r)).collect();
+        let resp = to_stdvec(&many_responses).unwrap(); // TODO: handle well
         let resp = P2PMessageBody {
             dest: client_name,
             sender: server_ctx.server_name.clone(),
@@ -98,6 +81,30 @@ pub async fn handle_client(
 
     Ok(())
 }
+
+
+fn request_to_response(server_ctx: &ServerContext, ms: &mut MetaStorage, ctx: &mut Option<DCContext>, req: Request) -> Response {
+    match (req, ctx) {
+        (Request::NewDataCapsule(dc), _) => handle_create(dc, ms, &server_ctx.pk),
+        (Request::ReadMetadata(dc), _) => handle_read_meta(dc, &ms),
+        (Request::Init(dc_name), ctx) => handle_init(dc_name, &server_ctx.db, ctx),
+        (Request::Write(data), Some(ctx)) => handle_write(data, ctx),
+        (Request::Commit(additional_hash, sig), Some(ctx)) => {
+            handle_commit(ctx, &server_ctx.pk, &additional_hash, &sig)
+        }
+        (Request::Read(hash), Some(ctx)) => handle_read(hash, &ctx.ds),
+        (Request::Proof(hash), Some(ctx)) => build_proof(hash, ctx),
+        (Request::FreshestCommits, Some(ctx)) => handle_freshness(&ctx.os),
+        (Request::Records(hash), Some(ctx)) => get_all_leaves(&ctx.ns, &hash),
+        _ => {
+            // a request that needs to be in the context of a dc, but
+            // no init message has been received
+            Response::Failed
+        }
+    }
+}
+
+
 
 fn handle_create(dc: DataCapsule, ms: &mut MetaStorage, signing_key: &PrivateKey) -> Response {
     let hash = hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description);

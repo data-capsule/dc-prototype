@@ -1,5 +1,7 @@
+use std::iter::zip;
+
 use fakep2p::{P2PMessageBody, P2PSender};
-use postcard::to_stdvec;
+use postcard::{to_stdvec, from_bytes};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
 use crate::shared::crypto::{
@@ -18,7 +20,7 @@ pub struct ClientConnection {
     signing_pub_key: PublicKey,
     encryption_key: SymmetricKey,
     sender: P2PSender,
-    receiver: mpsc::UnboundedReceiver<Response>,
+    receiver: mpsc::UnboundedReceiver<P2PMessageBody>,
     read_state: ReadState,
 }
 
@@ -57,7 +59,7 @@ impl ClientConnection {
         signing_pub_key: PublicKey,
         encryption_key: SymmetricKey,
         sender: P2PSender,
-    ) -> (Self, UnboundedSender<Response>) {
+    ) -> (Self, UnboundedSender<P2PMessageBody>) {
         let (s, r) = mpsc::unbounded_channel();
         let c = ClientConnection {
             name: name.into(),
@@ -143,19 +145,17 @@ impl ClientConnection {
         dest: &str,
         multi: bool,
     ) -> Result<(), DCClientError> {
-        for r in requests {
-            let r = to_stdvec(&r).unwrap(); // TODO: handle well
-            let r = P2PMessageBody {
-                dest: dest.into(),
-                sender: self.name.clone(),
-                content: r,
-                metadata: Vec::new(),
-            };
-            if multi {
-                self.sender.send_multi(r)?
-            } else {
-                self.sender.send_one(r)?
-            }
+        let r = to_stdvec(requests).unwrap(); // TODO: handle well
+        let r = P2PMessageBody {
+            dest: dest.into(),
+            sender: self.name.clone(),
+            content: r,
+            metadata: Vec::new(),
+        };
+        if multi {
+            self.sender.send_multi(r)?
+        } else {
+            self.sender.send_one(r)?
         }
         Ok(())
     }
@@ -169,85 +169,93 @@ impl ClientConnection {
         dc_server_key: &PublicKey,
     ) -> Vec<ClientResponse> {
         let mut responses = Vec::new();
-        for s in syncs {
-            let resp = self.receiver.recv().await.unwrap_or(Response::Failed);
-            let resp = match (resp, s) {
-                (Response::NewDataCapsule(sig), ClientSync::NewDataCapsule(hash)) => {
-                    if verify_signature(&sig, hash, dc_server_key) {
-                        ClientResponse::NewDataCapsule
-                    } else {
-                        ClientResponse::CryptographyFail
-                    }
-                }
-                (Response::ReadMetadata(dc), ClientSync::ReadMetadata(hash)) => {
-                    if &hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description)
-                        == hash
-                    {
-                        ClientResponse::ReadMetadata(dc)
-                    } else {
-                        ClientResponse::CryptographyFail
-                    }
-                }
-                (Response::Init, ClientSync::Init) => {
-                    self.read_state = ReadState::new();
-                    ClientResponse::Init
-                }
-                (Response::Write, ClientSync::Write) => ClientResponse::Write,
-                (Response::Commit(sig), ClientSync::Commit(hash)) => {
-                    if verify_signature(&sig, hash, dc_server_key) {
-                        ClientResponse::Commit
-                    } else {
-                        ClientResponse::CryptographyFail
-                    }
-                }
-                (Response::Read(encrypted_data), ClientSync::Read(hash)) => {
-                    if &hash_data(&encrypted_data) == hash {
-                        ClientResponse::Read(decrypt(&encrypted_data, &self.encryption_key))
-                    } else {
-                        ClientResponse::CryptographyFail
-                    }
-                }
-                (Response::Proof { root, nodes }, ClientSync::Proof(hash)) => {
-                    let success = verify_proof(
-                        hash,
-                        &root,
-                        &nodes,
-                        &self.signing_pub_key,
-                        &mut self.read_state,
-                    )
-                    .is_ok();
-                    ClientResponse::Proof(success)
-                }
-                (Response::FreshestCommits(commits), ClientSync::FreshestCommits) => {
-                    let mut good = true;
-                    for (hash, signature) in &commits {
-                        if !verify_signature(&signature, &hash, &self.signing_pub_key) {
-                            // TODO: use someone else's pubkey
-                            good = false;
-                            break;
-                        }
-                    }
-                    if good {
-                        let commits = commits.iter().map(|(h, _)| *h).collect();
-                        ClientResponse::FreshestCommits(commits)
-                    } else {
-                        ClientResponse::CryptographyFail
-                    }
-                }
-                (Response::Records(records, additional), ClientSync::Records(hash)) => {
-                    if merkle_tree_root(&records, &additional) == *hash {
-                        ClientResponse::Records(records, additional)
-                    } else {
-                        ClientResponse::CryptographyFail
-                    }
-                }
-                _ => ClientResponse::ServerFail,
-            };
-            responses.push(resp);
+        let m = self.receiver.recv().await.unwrap();
+        let cheese: Vec<Response> = from_bytes(&m.content).unwrap(); // TODO: handle well
+        assert!(cheese.len() == syncs.len()); // TODO: handle well
+        for (resp, sync) in zip(cheese, syncs) {
+            responses.push(self.response_to_client_response(dc_server_key, resp, sync));
         }
         responses
     }
+
+    fn response_to_client_response(&mut self, dc_server_key: &PublicKey, resp: Response, sync: &ClientSync) -> ClientResponse {
+        match (resp, sync) {
+            (Response::NewDataCapsule(sig), ClientSync::NewDataCapsule(hash)) => {
+                if verify_signature(&sig, hash, dc_server_key) {
+                    ClientResponse::NewDataCapsule
+                } else {
+                    ClientResponse::CryptographyFail
+                }
+            }
+            (Response::ReadMetadata(dc), ClientSync::ReadMetadata(hash)) => {
+                if &hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description) == hash {
+                    ClientResponse::ReadMetadata(dc)
+                } else {
+                    ClientResponse::CryptographyFail
+                }
+            }
+            (Response::Init, ClientSync::Init) => {
+                self.read_state = ReadState::new();
+                ClientResponse::Init
+            }
+            (Response::Write, ClientSync::Write) => ClientResponse::Write,
+            (Response::Commit(sig), ClientSync::Commit(hash)) => {
+                if verify_signature(&sig, hash, dc_server_key) {
+                    ClientResponse::Commit
+                } else {
+                    ClientResponse::CryptographyFail
+                }
+            }
+            (Response::Read(encrypted_data), ClientSync::Read(hash)) => {
+                if &hash_data(&encrypted_data) == hash {
+                    ClientResponse::Read(decrypt(&encrypted_data, &self.encryption_key))
+                } else {
+                    ClientResponse::CryptographyFail
+                }
+            }
+            (Response::Proof { root, nodes }, ClientSync::Proof(hash)) => {
+                let success = verify_proof(
+                    hash,
+                    &root,
+                    &nodes,
+                    &self.signing_pub_key,
+                    &mut self.read_state,
+                )
+                .is_ok();
+                ClientResponse::Proof(success)
+            }
+            (Response::FreshestCommits(commits), ClientSync::FreshestCommits) => {
+                let mut good = true;
+                for (hash, signature) in &commits {
+                    if !verify_signature(&signature, &hash, &self.signing_pub_key) {
+                        // TODO: use someone else's pubkey
+                        good = false;
+                        break;
+                    }
+                }
+                if good {
+                    let commits = commits.iter().map(|(h, _)| *h).collect();
+                    ClientResponse::FreshestCommits(commits)
+                } else {
+                    ClientResponse::CryptographyFail
+                }
+            }
+            (Response::Records(records, additional), ClientSync::Records(hash)) => {
+                if merkle_tree_root(&records, &additional) == *hash {
+                    ClientResponse::Records(records, additional)
+                } else {
+                    ClientResponse::CryptographyFail
+                }
+            }
+            _ => ClientResponse::ServerFail,
+        }
+    }
+
+
 }
+
+
+
 
 fn verify_proof(
     expected_hash: &Hash,

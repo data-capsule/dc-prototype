@@ -1,15 +1,11 @@
 use std::error::Error;
 
 use fakep2p::{P2PComm, P2PConfig};
-use postcard::from_bytes;
 use tokio::fs;
 
 use crate::{
     client::p2pclient::ClientConnection,
-    shared::{
-        crypto::{PrivateKey, PublicKey, SymmetricKey},
-        request::Response,
-    },
+    shared::crypto::{PrivateKey, PublicKey, SymmetricKey},
 };
 
 pub mod p2pclient;
@@ -68,11 +64,7 @@ pub async fn run_client(
                         Some(Ok(m)) => m,
                         _ => return,
                     };
-                    let res: Response = match from_bytes(&m.content) {
-                        Ok(r) => r,
-                        _ => return,
-                    };
-                    to_client.send(res).unwrap();
+                    to_client.send(m).unwrap();
                 }
             });
         }
