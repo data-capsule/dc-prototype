@@ -1,10 +1,6 @@
-use std::{net::SocketAddr, time::Instant};
+use std::time::Instant;
 
-use datacapsule::client::{
-    manager::ManagerConnection,
-    reader::{ReaderConnection, ReaderOperation},
-    writer::{WriterConnection, WriterOperation, WriterResponse},
-};
+use datacapsule::client::run_client;
 use openssl::{
     ec::{EcGroup, EcKey},
     nid::Nid,
@@ -25,13 +21,11 @@ async fn keys(pk_file: &str) -> (EcKey<Private>, EcKey<Public>, EcKey<Public>) {
 }
 
 const TOTAL_RECORDS: usize = 100000;
-const RECORDS_PER_COMMIT: usize = 10000;
+const RECORDS_PER_COMMIT: usize = 1000;
 
 #[tokio::main]
 async fn main() {
     let tt = Instant::now();
-
-    let server_addr = "127.0.0.1:6142".parse::<SocketAddr>().unwrap();
 
     let (ck, cpubk, spubk) = keys("env/server_private.pem").await;
 
@@ -41,80 +35,90 @@ async fn main() {
         spubk.public_key_to_der().unwrap().len()
     );
 
-    let dc = {
-        let mut mc = ManagerConnection::new(server_addr).await.unwrap();
-        mc.create(&cpubk, &ck, &cpubk, &spubk, "cheese".into())
-            .await
-            .unwrap()
-    };
+    let mut cc = run_client("client1", ck, cpubk.clone(), *b"1234567812345678", "env/net_config.json").await.unwrap();
 
-    let mut wc = WriterConnection::new(
-        dc,
-        server_addr,
-        spubk,
-        cpubk.clone(),
-        ck,
-        *b"1234567812345678",
-        [0; 32],
-    )
-    .await
-    .unwrap();
-    let mut rc = ReaderConnection::new(dc, server_addr, *b"1234567812345678", cpubk)
-        .await
-        .unwrap();
+    let (capsule_req, capsule_s, dc_name) = cc.new_data_capsule_request(&cpubk, "benchmark");
+    let (init_req, init_s) = cc.init_request(&dc_name);
+    cc.send(&[capsule_req, init_req], "server1", false).unwrap();
+    let resp = cc.wait_for_responses(&[capsule_s, init_s], &spubk).await;
+    println!("{:?}", resp);
+    println!("TESTING WITH {} RECORDS {} PER COMMIT", TOTAL_RECORDS, RECORDS_PER_COMMIT);
 
-    let mut rawdata = Vec::<u8>::new();
-    let mut write_ops = Vec::new();
-    let mut write_reps = Vec::new();
+    let mut all_hashes_for_read = Vec::new();
+    {
+        let mut rawdata = Vec::<u8>::new();
+        let mut requests = Vec::new();
+        let mut syncs = Vec::new();
+        let mut hashes = Vec::new();
+        
+        let mut last_commit = [0; 32];
 
-    for a in 0..(TOTAL_RECORDS / RECORDS_PER_COMMIT) {
-        for b in 0..RECORDS_PER_COMMIT {
-            rawdata.extend_from_slice(b"data:");
-            rawdata.extend_from_slice(&a.to_le_bytes());
-            rawdata.extend_from_slice(&b.to_le_bytes());
+        for a in 0..(TOTAL_RECORDS / RECORDS_PER_COMMIT) {
+            for b in 0..RECORDS_PER_COMMIT {
+                rawdata.extend_from_slice(b"data:");
+                rawdata.extend_from_slice(&a.to_le_bytes());
+                rawdata.extend_from_slice(&b.to_le_bytes());
+            }
         }
-    }
-    let mut i = 0;
-    for _ in 0..(TOTAL_RECORDS / RECORDS_PER_COMMIT) {
-        for _ in 0..RECORDS_PER_COMMIT {
-            write_ops.push(WriterOperation::Write(&rawdata[21 * i..21 * (i + 1)]));
-            i += 1;
+
+        println!("Did setup in {:?}. DC: {:x?}", tt.elapsed(), dc_name);
+        let tt = Instant::now();
+
+        let mut i = 0;
+        for _ in 0..(TOTAL_RECORDS / RECORDS_PER_COMMIT) {
+            for _ in 0..RECORDS_PER_COMMIT {
+                let (a, b, c) = cc.write_request(&rawdata[21 * i..21 * (i + 1)]);
+                requests.push(a);
+                syncs.push(b);
+                hashes.push(c);
+                all_hashes_for_read.push(c);
+                i += 1;
+            }
+            let (a, b, c) = cc.commit_request(&hashes, last_commit);
+            requests.push(a);
+            syncs.push(b);
+            last_commit = c;
+            hashes.clear();
         }
-        write_ops.push(WriterOperation::Commit)
+
+        println!("Created requests in {:?}", tt.elapsed());
+        cc.send(&requests, "server1", false).unwrap();
+        println!("After send {:?}", tt.elapsed());
+        let resp = cc.wait_for_responses(&syncs, &spubk).await;
+        println!("Total write time after receive {:?}, got {}", tt.elapsed(), resp.len());
     }
+    {
+        let tt = Instant::now();
+        let mut requests = Vec::new();
+        let mut syncs = Vec::new();
 
-    println!("Did setup in {:?}. DC: {:x?}", tt.elapsed(), dc);
-    let tt = Instant::now();
-
-    wc.do_operations(&write_ops, &mut write_reps).await.unwrap();
-
-    println!("Did writes in {:?}. got {}", tt.elapsed(), write_reps.len());
-    let tt = Instant::now();
-
-    let mut ops = Vec::new();
-    for r in &write_reps {
-        if let WriterResponse::Write(h) = r {
-            ops.push(ReaderOperation::Read(*h));
+        for h in &all_hashes_for_read {
+            let (a, b) = cc.read_request(h);
+            requests.push(a);
+            syncs.push(b);
         }
+
+        println!("Created requests in {:?}", tt.elapsed());
+        cc.send(&requests, "server1", false).unwrap();
+        println!("After send {:?}", tt.elapsed());
+        let resp = cc.wait_for_responses(&syncs, &spubk).await;
+        println!("Total read time after receive {:?}, got {}", tt.elapsed(), resp.len());
     }
-    let mut read_reps = Vec::new();
-    rc.do_operations(&ops, &mut read_reps).await.unwrap();
+    {
+        let tt = Instant::now();
+        let mut requests = Vec::new();
+        let mut syncs = Vec::new();
 
-    println!("Did reads in {:?}. got {:?}", tt.elapsed(), read_reps.len());
-    let tt = Instant::now();
-
-    let mut ops = Vec::new();
-    for r in write_reps.iter().rev() {
-        if let WriterResponse::Write(h) = r {
-            ops.push(ReaderOperation::Prove(*h));
+        for h in all_hashes_for_read.iter().rev() {
+            let (a, b) = cc.proof_request(h);
+            requests.push(a);
+            syncs.push(b);
         }
-    }
-    let mut prove_reps = Vec::new();
-    rc.do_operations(&ops, &mut prove_reps).await.unwrap();
 
-    println!(
-        "Did proofs in {:?}. got {:?}",
-        tt.elapsed(),
-        prove_reps.len()
-    );
+        println!("Created requests in {:?}", tt.elapsed());
+        cc.send(&requests, "server1", false).unwrap();
+        println!("After send {:?}", tt.elapsed());
+        let resp = cc.wait_for_responses(&syncs, &spubk).await;
+        println!("Total proof time after receive {:?}, got {}", tt.elapsed(), resp.len());
+    }
 }

@@ -1,9 +1,10 @@
-use fakep2p::{P2PConfig, P2PComm, P2PSender, P2PReceiver, P2PMessageBody};
+use fakep2p::{P2PComm, P2PConfig, P2PMessageBody, P2PReceiver, P2PSender};
 use futures::StreamExt;
-use tokio::{fs, io::{self, Stdin}};
-use tokio_util::codec::{LinesCodec, FramedRead};
-
-
+use tokio::{
+    fs,
+    io::{self, Stdin},
+};
+use tokio_util::codec::{FramedRead, LinesCodec};
 
 #[tokio::main]
 async fn main() {
@@ -11,12 +12,12 @@ async fn main() {
     println!("enter client name (client1, client2, client3, server2):");
     let name = stdin.next().await.unwrap().unwrap();
 
-    let json = fs::read_to_string("examples/echo_server_config.json").await.unwrap();
-    let mut config: P2PConfig = serde_json::from_str(&json).unwrap();
+    let json = fs::read_to_string("examples/echo_server_config.json")
+        .await
+        .unwrap();
+    let config: P2PConfig = serde_json::from_str(&json).unwrap();
 
-    config.name = name.clone();
-
-    let mut comm = P2PComm::new(config).await.unwrap();
+    let mut comm = P2PComm::new(name.clone(), config).await.unwrap();
     println!("comm set up");
 
     let sender = comm.new_sender();
@@ -34,7 +35,6 @@ async fn main() {
     }
 }
 
-
 async fn handle(mut rcv: P2PReceiver) {
     loop {
         let msg = rcv.receive().await.unwrap().unwrap();
@@ -50,14 +50,8 @@ async fn interact(mut sender: P2PSender, mut stdin: FramedRead<Stdin, LinesCodec
             dest: "dc1".into(),
             sender: name.into(),
             content: line.as_bytes().to_vec(),
-            metadata: "cheese".as_bytes().to_vec()
+            metadata: "cheese".as_bytes().to_vec(),
         };
         sender.send_multi(msg).unwrap();
     }
 }
-
-
-
-
-
-

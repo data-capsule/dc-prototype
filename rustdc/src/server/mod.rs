@@ -1,6 +1,6 @@
 mod storage;
-mod client_thread;
 pub mod withp2p;
+mod writer;
 
 #[derive(Debug)]
 pub enum DCServerError {

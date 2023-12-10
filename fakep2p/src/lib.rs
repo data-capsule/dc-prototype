@@ -1,14 +1,15 @@
-use std::{collections::HashMap, io};
 use bytes::{BufMut, BytesMut};
-use futures::{StreamExt, SinkExt, stream::SplitStream, FutureExt};
+use futures::{stream::SplitStream, FutureExt, SinkExt, StreamExt};
 use postcard::{from_bytes, to_stdvec};
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
-use tokio::{sync::mpsc, net::{TcpListener, TcpStream}};
-use tokio_util::codec::{Encoder, Decoder, Framed};
-
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::{collections::HashMap, io, sync::{Mutex, Arc}};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::mpsc,
+};
+use tokio_util::codec::{Decoder, Encoder, Framed};
 
 type Name = String; // in actuality, should be a hash, but oh well
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct P2PMessageBody {
@@ -20,29 +21,28 @@ pub struct P2PMessageBody {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct P2PConfig {
-    pub name: Name,
     pub addr_map: HashMap<Name, String>,
-    pub mcast_groups: HashMap<Name, Vec<Name>>
+    pub mcast_groups: HashMap<Name, Vec<Name>>,
 }
 
 pub struct P2PComm {
+    name: Name,
     config: P2PConfig,
     listener: TcpListener,
-    senders:  HashMap<Name, mpsc::UnboundedSender<P2PMessageBody>>,
-    receivers: HashMap<Name, mpsc::UnboundedReceiver<P2PMessageBody>>,
+    senders: HashMap<Name, mpsc::UnboundedSender<P2PMessageBody>>,
+    receivers: Arc<Mutex<HashMap<Name, mpsc::UnboundedReceiver<P2PMessageBody>>>>,
     connected: Vec<TcpStream>,
 }
 
 pub struct P2PReceiver {
-    stream: SplitStream<Framed<TcpStream, P2PCodec>>
+    stream: SplitStream<Framed<TcpStream, P2PCodec>>,
 }
 
 #[derive(Clone)]
 pub struct P2PSender {
     queues: HashMap<Name, mpsc::UnboundedSender<P2PMessageBody>>,
-    mcast_groups: HashMap<Name, Vec<Name>>
+    mcast_groups: HashMap<Name, Vec<Name>>,
 }
-
 
 fn io_err<T>(s: &str) -> Result<T, io::Error> {
     Err(io::Error::new(io::ErrorKind::Other, s))
@@ -109,10 +109,9 @@ impl Decoder for P2PCodec {
     }
 }
 
-
 impl P2PComm {
-    pub async fn new(mut config: P2PConfig) -> Result<Self, io::Error> {
-        let addr = config.addr_map.remove(&config.name).unwrap();
+    pub async fn new(name: Name, mut config: P2PConfig) -> Result<Self, io::Error> {
+        let addr = config.addr_map.remove(&name).unwrap();
         let listener = TcpListener::bind(&addr).await?;
 
         let mut receivers = HashMap::new();
@@ -122,7 +121,7 @@ impl P2PComm {
             senders.insert(n.clone(), s);
             receivers.insert(n.clone(), r);
         }
-        
+
         let mut connected = Vec::new();
         for (_, addr) in &config.addr_map {
             if let Ok(s) = TcpStream::connect(addr).await {
@@ -130,7 +129,14 @@ impl P2PComm {
             }
         }
 
-        Ok(Self { config, listener, senders, receivers, connected })
+        Ok(Self {
+            name,
+            config,
+            listener,
+            senders,
+            receivers: Arc::new(Mutex::new(receivers)),
+            connected,
+        })
     }
 
     /// Waits for a new connection to become available, then accepts it.
@@ -150,7 +156,7 @@ impl P2PComm {
         // identify ourselves to the other side
         let dummy_msg = P2PMessageBody {
             dest: Name::new(),
-            sender: self.config.name.clone(),
+            sender: self.name.clone(),
             content: Vec::new(),
             metadata: Vec::new(),
         };
@@ -161,8 +167,11 @@ impl P2PComm {
             None => return io_err("no starting message from other side"),
         };
 
-        let mut recv = self.receivers.remove(&otherside_name).unwrap();
-        
+        let mut recv = {
+            let mut map = self.receivers.lock().unwrap();
+            map.remove(&otherside_name).unwrap()
+        };
+
         tokio::spawn(async move {
             loop {
                 let m = match recv.recv().now_or_never() {

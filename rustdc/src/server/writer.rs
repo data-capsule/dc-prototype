@@ -3,10 +3,10 @@ use postcard::{from_bytes, to_stdvec};
 use sled::Db;
 use tokio::sync::mpsc;
 
-
-use crate::shared::config::{SIG_AVOID, FANOUT};
+use crate::shared::config::{FANOUT, SIG_AVOID};
 use crate::shared::crypto::{
-    deserialize_pubkey, hash_data, sign, verify_signature, Hash, PrivateKey, PublicKey, Signature, hash_dc_metadata, NULL_HASH, DataCapsule,
+    deserialize_pubkey, hash_data, hash_dc_metadata, sign, verify_signature, DataCapsule, Hash,
+    PrivateKey, PublicKey, Signature, NULL_HASH,
 };
 use crate::shared::merkle::merkle_tree_storage;
 use crate::shared::readstate::ReadState;
@@ -18,22 +18,19 @@ use super::storage::{
 use super::withp2p::ServerContext;
 use super::DCServerError;
 
-
 struct DCContext {
-    name: Hash,
     ds: DataStorage,
     rs: RecordStorage,
     ns: NodeStorage,
     os: OrphanStorage,
     writer_pk: PublicKey,
     uncommitted_hashes: Vec<Hash>,
-    read_state: ReadState
+    read_state: ReadState,
 }
 
 impl DCContext {
     fn new(dc_name: Hash, db: &Db, writer_pk: PublicKey) -> Result<Self, sled::Error> {
         Ok(Self {
-            name: dc_name,
             ds: DataStorage::new(db, &dc_name)?,
             rs: RecordStorage::new(db, &dc_name)?,
             ns: NodeStorage::new(db, &dc_name)?,
@@ -45,10 +42,13 @@ impl DCContext {
     }
 }
 
-
 /// Handles an individual client. All messages received from rcv will be from
 /// the same client.
-pub async fn handle_client(server_ctx: ServerContext, mut rcv: mpsc::UnboundedReceiver<P2PMessageBody>, mut send: P2PSender) -> Result<(), DCServerError> {
+pub async fn handle_client(
+    server_ctx: ServerContext,
+    mut rcv: mpsc::UnboundedReceiver<P2PMessageBody>,
+    mut send: P2PSender,
+) -> Result<(), DCServerError> {
     let mut ms = MetaStorage::new(&server_ctx.db)?;
     let mut ctx: Option<DCContext> = None;
 
@@ -68,15 +68,17 @@ pub async fn handle_client(server_ctx: ServerContext, mut rcv: mpsc::UnboundedRe
         let resp = match (req, &mut ctx) {
             (Request::NewDataCapsule(dc), _) => handle_create(dc, &mut ms, &server_ctx.pk),
             (Request::ReadMetadata(dc), _) => handle_read_meta(dc, &ms),
-            (Request::Init(dc_name), _) => handle_init(dc_name, &server_ctx.db, &ms, &mut ctx),
+            (Request::Init(dc_name), _) => handle_init(dc_name, &server_ctx.db, &mut ctx),
             (Request::Write(data), Some(ctx)) => handle_write(data, ctx),
-            (Request::Commit(additional_hash, sig), Some(ctx)) => handle_commit(ctx, &server_ctx.pk, &additional_hash, &sig),
+            (Request::Commit(additional_hash, sig), Some(ctx)) => {
+                handle_commit(ctx, &server_ctx.pk, &additional_hash, &sig)
+            }
             (Request::Read(hash), Some(ctx)) => handle_read(hash, &ctx.ds),
             (Request::Proof(hash), Some(ctx)) => build_proof(hash, ctx),
             (Request::FreshestCommits, Some(ctx)) => handle_freshness(&ctx.os),
             (Request::Records(hash), Some(ctx)) => get_all_leaves(&ctx.ns, &hash),
             _ => {
-                // a request that needs to be in the context of a dc, but 
+                // a request that needs to be in the context of a dc, but
                 // no init message has been received
                 Response::Failed
             }
@@ -97,9 +99,8 @@ pub async fn handle_client(server_ctx: ServerContext, mut rcv: mpsc::UnboundedRe
     Ok(())
 }
 
-pub fn handle_create(dc: DataCapsule, ms: &mut MetaStorage, signing_key: &PrivateKey) -> Response {
-    let hash =
-    hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description);
+fn handle_create(dc: DataCapsule, ms: &mut MetaStorage, signing_key: &PrivateKey) -> Response {
+    let hash = hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description);
     let creator_pk = deserialize_pubkey(&dc.creator_pub_key);
     let good = verify_signature(&dc.signature, &hash, &creator_pk);
     if good {
@@ -112,14 +113,18 @@ pub fn handle_create(dc: DataCapsule, ms: &mut MetaStorage, signing_key: &Privat
     }
 }
 
-pub fn handle_read_meta(dc: Hash, ms: &MetaStorage) -> Response {
+fn handle_read_meta(dc: Hash, ms: &MetaStorage) -> Response {
     match ms.get(&dc) {
         Ok(Some(ds)) => Response::ReadMetadata(ds),
         _ => Response::Failed,
     }
 }
 
-pub fn handle_init(dc_name: Hash, db: &Db, ms: &MetaStorage, ctx: &mut Option<DCContext>) -> Response {
+fn handle_init(
+    dc_name: Hash,
+    db: &Db,
+    ctx: &mut Option<DCContext>,
+) -> Response {
     let writer_pk = match MetaStorage::get_writer_pk(&db, &dc_name) {
         Ok(Some(v)) => deserialize_pubkey(&v),
         _ => return Response::Failed,
@@ -194,7 +199,10 @@ fn handle_commit(
     }
 
     // mark root node as orphan, and additional hash as non-orphan
-    if let Err(e) = ctx.os.replace(additional_hash, &root.name, client_signature) {
+    if let Err(e) = ctx
+        .os
+        .replace(additional_hash, &root.name, client_signature)
+    {
         tracing::error!("ds error: {:?}", e);
         return Response::Failed;
     }
@@ -221,7 +229,6 @@ fn handle_commit(
     Response::Commit(sign(&root.name, signing_key))
 }
 
-
 fn handle_read(hash: Hash, ds: &DataStorage) -> Response {
     match ds.get(&hash) {
         Ok(Some(r)) => Response::Read(r),
@@ -229,11 +236,7 @@ fn handle_read(hash: Hash, ds: &DataStorage) -> Response {
     }
 }
 
-
-fn build_proof(
-    mut hash: Hash,
-    ctx: &mut DCContext
-) -> Response {
+fn build_proof(mut hash: Hash, ctx: &mut DCContext) -> Response {
     // every committed record should have a parent
     let mut parent = match ctx.rs.get(&hash) {
         Ok(Some(p)) => p,
@@ -306,7 +309,6 @@ fn handle_freshness(os: &OrphanStorage) -> Response {
         _ => Response::Failed,
     }
 }
-
 
 fn get_all_leaves(ns: &NodeStorage, hash: &Hash) -> Response {
     let mut depth = match ns.get(hash) {

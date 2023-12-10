@@ -1,0 +1,13 @@
+know keys: 91 91
+[NewDataCapsule, Init]
+TESTING WITH 100000 RECORDS 1000 PER COMMIT
+Did setup in 7.358064ms. DC: [f3, 36, a4, b3, 70, eb, 9b, a1, b9, 77, 45, 59, ff, ab, c4, 63, 7b, da, 13, 14, f3, 32, 58, 60, aa, 53, bc, bd, 23, 61, e, 25]
+Created requests in 260.634255ms
+After send 397.595689ms
+Total write time after receive 1.986035691s, got 100100
+Created requests in 10.384038ms
+After send 104.255414ms
+Total read time after receive 414.652691ms, got 100000
+Created requests in 3.007521ms
+After send 115.495919ms
+Total proof time after receive 466.26323ms, got 100000

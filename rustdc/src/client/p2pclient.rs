@@ -1,15 +1,16 @@
-use fakep2p::{P2PSender, P2PMessageBody};
+use fakep2p::{P2PMessageBody, P2PSender};
 use postcard::to_stdvec;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 
+use crate::shared::crypto::{
+    decrypt, encrypt, hash_data, hash_dc_metadata, hash_node, serialize_pubkey, sign,
+    verify_signature, DataCapsule, Hash, HashNode, PrivateKey, PublicKey, Signature, SymmetricKey,
+};
 use crate::shared::merkle::merkle_tree_root;
 use crate::shared::readstate::ReadState;
 use crate::shared::request::{Request, Response};
-use crate::shared::crypto::{Hash, PrivateKey, SymmetricKey, PublicKey, DataCapsule, hash_dc_metadata, sign, hash_data, encrypt, serialize_pubkey, verify_signature, decrypt, Signature, HashNode, hash_node};
 
 use super::DCClientError;
-
-
 
 pub struct ClientConnection {
     name: String,
@@ -18,9 +19,10 @@ pub struct ClientConnection {
     encryption_key: SymmetricKey,
     sender: P2PSender,
     receiver: mpsc::UnboundedReceiver<Response>,
-    read_state: ReadState
+    read_state: ReadState,
 }
 
+#[derive(Debug, Clone)]
 pub enum ClientSync {
     NewDataCapsule(Hash),
     ReadMetadata(Hash),
@@ -30,9 +32,10 @@ pub enum ClientSync {
     Read(Hash),
     Proof(Hash),
     FreshestCommits,
-    Records(Hash)
+    Records(Hash),
 }
 
+#[derive(Debug, Clone)]
 pub enum ClientResponse {
     NewDataCapsule,
     ReadMetadata(DataCapsule),
@@ -43,15 +46,36 @@ pub enum ClientResponse {
     Proof(bool),
     FreshestCommits(Vec<Hash>),
     Records(Vec<Hash>, Hash),
-    Failed
+    CryptographyFail,
+    ServerFail,
 }
 
 impl ClientConnection {
-    pub fn new() -> Self {
-        todo!()
+    pub fn new(
+        name: &str,
+        signing_key: PrivateKey,
+        signing_pub_key: PublicKey,
+        encryption_key: SymmetricKey,
+        sender: P2PSender,
+    ) -> (Self, UnboundedSender<Response>) {
+        let (s, r) = mpsc::unbounded_channel();
+        let c = ClientConnection {
+            name: name.into(),
+            signing_key,
+            signing_pub_key,
+            encryption_key,
+            sender,
+            receiver: r,
+            read_state: ReadState::new(),
+        };
+        (c, s)
     }
 
-    pub fn new_data_capsule_request(&self, writer_pub_key: &PublicKey, description: &str) -> (Request, ClientSync, Hash) {
+    pub fn new_data_capsule_request(
+        &self,
+        writer_pub_key: &PublicKey,
+        description: &str,
+    ) -> (Request, ClientSync, Hash) {
         let creator_pub_key = serialize_pubkey(&self.signing_pub_key);
         let writer_pub_key = serialize_pubkey(writer_pub_key);
         let hash = hash_dc_metadata(&creator_pub_key, &writer_pub_key, description);
@@ -61,7 +85,11 @@ impl ClientConnection {
             description: description.into(),
             signature: sign(&hash, &self.signing_key),
         };
-        (Request::NewDataCapsule(dc), ClientSync::NewDataCapsule(hash), hash)
+        (
+            Request::NewDataCapsule(dc),
+            ClientSync::NewDataCapsule(hash),
+            hash,
+        )
     }
 
     pub fn read_metadata_request(&self, dc: &Hash) -> (Request, ClientSync) {
@@ -78,10 +106,18 @@ impl ClientConnection {
         (Request::Write(encrypted_data), ClientSync::Write, hash)
     }
 
-    pub fn commit_request(&self, records: &[Hash], prev_commit_hash: Hash) -> (Request, ClientSync, Hash) {
+    pub fn commit_request(
+        &self,
+        records: &[Hash],
+        prev_commit_hash: Hash,
+    ) -> (Request, ClientSync, Hash) {
         let root_hash = merkle_tree_root(records, &prev_commit_hash);
         let signature = sign(&root_hash, &self.signing_key);
-        (Request::Commit(prev_commit_hash, signature), ClientSync::Commit(root_hash), root_hash)
+        (
+            Request::Commit(prev_commit_hash, signature),
+            ClientSync::Commit(root_hash),
+            root_hash,
+        )
     }
 
     pub fn read_request(&self, record: &Hash) -> (Request, ClientSync) {
@@ -101,7 +137,12 @@ impl ClientConnection {
     }
 
     /// Sends all the requests to the given destination
-    pub fn send(&mut self, requests: &[Request], dest: &str, multi: bool) -> Result<(), DCClientError> {
+    pub fn send(
+        &mut self,
+        requests: &[Request],
+        dest: &str,
+        multi: bool,
+    ) -> Result<(), DCClientError> {
         for r in requests {
             let r = to_stdvec(&r).unwrap(); // TODO: handle well
             let r = P2PMessageBody {
@@ -122,7 +163,11 @@ impl ClientConnection {
     /// A simple function for benchmarking. Waits for and verifies all results.
     /// A real client would probably want to do something more interesting, and
     /// also handle out-of-order messages and miscellaneous failures
-    pub async fn wait_for_responses(&mut self, syncs: &[ClientSync], dc_server_key: &PublicKey) -> Vec<ClientResponse> {
+    pub async fn wait_for_responses(
+        &mut self,
+        syncs: &[ClientSync],
+        dc_server_key: &PublicKey,
+    ) -> Vec<ClientResponse> {
         let mut responses = Vec::new();
         for s in syncs {
             let resp = self.receiver.recv().await.unwrap_or(Response::Failed);
@@ -131,69 +176,78 @@ impl ClientConnection {
                     if verify_signature(&sig, hash, dc_server_key) {
                         ClientResponse::NewDataCapsule
                     } else {
-                        ClientResponse::Failed
+                        ClientResponse::CryptographyFail
                     }
-                },
+                }
                 (Response::ReadMetadata(dc), ClientSync::ReadMetadata(hash)) => {
-                    if &hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description) == hash {
+                    if &hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description)
+                        == hash
+                    {
                         ClientResponse::ReadMetadata(dc)
                     } else {
-                        ClientResponse::Failed
+                        ClientResponse::CryptographyFail
                     }
-                },
+                }
                 (Response::Init, ClientSync::Init) => {
                     self.read_state = ReadState::new();
                     ClientResponse::Init
-                },
+                }
                 (Response::Write, ClientSync::Write) => ClientResponse::Write,
                 (Response::Commit(sig), ClientSync::Commit(hash)) => {
-                    if verify_signature(&sig, hash, &self.signing_pub_key) { // TODO: use someone else's pubkey?
+                    if verify_signature(&sig, hash, dc_server_key) {
                         ClientResponse::Commit
                     } else {
-                        ClientResponse::Failed
+                        ClientResponse::CryptographyFail
                     }
-                },
+                }
                 (Response::Read(encrypted_data), ClientSync::Read(hash)) => {
                     if &hash_data(&encrypted_data) == hash {
                         ClientResponse::Read(decrypt(&encrypted_data, &self.encryption_key))
                     } else {
-                        ClientResponse::Failed
+                        ClientResponse::CryptographyFail
                     }
-                },
+                }
                 (Response::Proof { root, nodes }, ClientSync::Proof(hash)) => {
-                    let success = verify_proof(hash, &root, &nodes, &self.signing_pub_key, &mut self.read_state).is_ok();
+                    let success = verify_proof(
+                        hash,
+                        &root,
+                        &nodes,
+                        &self.signing_pub_key,
+                        &mut self.read_state,
+                    )
+                    .is_ok();
                     ClientResponse::Proof(success)
-                },
+                }
                 (Response::FreshestCommits(commits), ClientSync::FreshestCommits) => {
                     let mut good = true;
                     for (hash, signature) in &commits {
-                        if !verify_signature(&signature, &hash, &self.signing_pub_key) { // TODO: use someone else's pubkey
+                        if !verify_signature(&signature, &hash, &self.signing_pub_key) {
+                            // TODO: use someone else's pubkey
                             good = false;
                             break;
                         }
                     }
                     if good {
-                        let commits = commits.iter().map(|(h, s)| *h).collect();
+                        let commits = commits.iter().map(|(h, _)| *h).collect();
                         ClientResponse::FreshestCommits(commits)
                     } else {
-                        ClientResponse::Failed
+                        ClientResponse::CryptographyFail
                     }
-                },
+                }
                 (Response::Records(records, additional), ClientSync::Records(hash)) => {
                     if merkle_tree_root(&records, &additional) == *hash {
                         ClientResponse::Records(records, additional)
                     } else {
-                        ClientResponse::Failed
+                        ClientResponse::CryptographyFail
                     }
-                },
-                _ => ClientResponse::Failed,
+                }
+                _ => ClientResponse::ServerFail,
             };
             responses.push(resp);
         }
         responses
     }
 }
-
 
 fn verify_proof(
     expected_hash: &Hash,
@@ -230,42 +284,3 @@ fn verify_proof(
         Err(DCClientError::BadProof("hash not proven".into()))
     }
 }
-
-
-
-
-
-/*
-pub async fn run_server(folder: &str) -> Result<(), Box<dyn Error>> {
-    
-    let db = sled::open(folder.to_owned() + "/my_db").unwrap();
-
-    let pk = read_file(folder, "server_private.pem").await?;
-    let pk = deserialize_private_key_from_pem(&pk);
-
-    let net_config = read_file(folder, "net_config.json").await?;
-    let net_config = String::from_utf8(net_config)?;
-    let net_config: P2PConfig = serde_json::from_str(&net_config)?;
-    let ctx = ServerContext {
-        server_name: net_config.name.clone(),
-        db,
-        pk
-    };
-    
-
-    let per_client_pipes = Arc::new(Mutex::new(HashMap::<String, mpsc::UnboundedSender<P2PMessageBody>>::new()));
-
-    let mut comm = P2PComm::new(net_config).await.unwrap();
-    tracing::info!("comm set up");
-    loop {
-        let ctx = ctx.clone();
-        let rcv = comm.accept().await.unwrap();
-        let send = comm.new_sender();
-        tracing::info!("accepted a connection");
-
-        tokio::spawn(async move {
-            handle(send, rcv, ctx, per_client_pipes).await;
-        });
-    }
-}
- */
