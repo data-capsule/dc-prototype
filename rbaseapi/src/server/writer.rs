@@ -13,6 +13,7 @@ use crate::shared::crypto::{
 };
 use crate::shared::dc_repr::{self, Metadata};
 use crate::shared::request::{ManageRequest, RWRequest, Request, Response, SubscribeRequest};
+use crate::server::storage;
 
 use super::storage::{
     DCMetadataStorage, RecordBodyStorage, RecordHeaderStorage, RecordWitnessStorage,
@@ -92,7 +93,7 @@ fn request_to_response(
     req: Request,
 ) -> Response {
     match (req, ctx) {
-        (Request::Manage(ManageRequest::Create(dc)), _) => handle_create(dc, ms, &server_ctx.pk),
+        (Request::Manage(ManageRequest::Create(dc)), _) => handle_create(dc, ms, &server_ctx.pk, &server_ctx.db),
         (Request::Manage(ManageRequest::Read(dc)), _) => handle_read_meta(dc, &ms),
         (Request::Init(dc_name), ctx) => handle_init(dc_name, &server_ctx.db, ctx),
         (Request::RW(RWRequest::Write(record)), Some(ctx)) => handle_write(&record, ctx),
@@ -115,12 +116,17 @@ fn request_to_response(
     }
 }
 
-fn handle_create(dc: Metadata, ms: &mut DCMetadataStorage, signing_key: &PrivateKey) -> Response {
+fn handle_create(dc: Metadata, ms: &mut DCMetadataStorage, signing_key: &PrivateKey, db: &Db) -> Response {
     let hash = hash_dc_metadata(&dc.creator_pub_key, &dc.writer_pub_key, &dc.description);
     let creator_pk = deserialize_pubkey(&dc.creator_pub_key);
     let good = verify_signature(&dc.signature, &hash, &creator_pk);
     if good {
-        match ms.store(&hash, &dc) {
+        let r: Result<(), DCServerError> = (|| {
+            ms.store(&hash, &dc)?;
+            storage::init_marked(db, &hash)?;
+            Ok(())
+        })();
+        match r {
             Ok(()) => Response::ManageCreate(sign(&hash, signing_key)),
             Err(_) => Response::Failed,
         }
