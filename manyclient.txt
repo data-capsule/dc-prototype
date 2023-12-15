@@ -1,0 +1,10 @@
+know keys: 91 91
+
+
+TESTING REXP WITH 10 CLIENTS true UNIQUE 100000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 11.881421625s
+All client reads done! finished in 2.179523485s
+All client proofs done! finished in 1.418098772s
+
+
+

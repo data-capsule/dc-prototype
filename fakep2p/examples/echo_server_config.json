@@ -2,9 +2,9 @@
     "addr_map": {
         "server1": "127.0.0.1:5001",
         "server2": "127.0.0.1:5002",
-        "client1": "127.0.0.1:5003",
-        "client2": "127.0.0.1:5004",
-        "client3": "127.0.0.1:5005"
+        "client1": "",
+        "client2": "",
+        "client3": ""
     },
     "mcast_groups": {
         "dc1": ["server1", "server2"],

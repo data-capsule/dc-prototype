@@ -1,5 +1,5 @@
 use bytes::{BufMut, BytesMut};
-use futures::{stream::SplitStream, FutureExt, SinkExt, StreamExt};
+use futures::{stream::SplitStream, FutureExt, SinkExt, StreamExt, future};
 use postcard::{from_bytes, to_stdvec};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{collections::HashMap, io, sync::{Mutex, Arc}};
@@ -28,7 +28,7 @@ pub struct P2PConfig {
 pub struct P2PComm {
     name: Name,
     config: P2PConfig,
-    listener: TcpListener,
+    listener: Option<TcpListener>,
     senders: HashMap<Name, mpsc::UnboundedSender<P2PMessageBody>>,
     receivers: Arc<Mutex<HashMap<Name, mpsc::UnboundedReceiver<P2PMessageBody>>>>,
     connected: Vec<TcpStream>,
@@ -112,7 +112,12 @@ impl Decoder for P2PCodec {
 impl P2PComm {
     pub async fn new(name: Name, mut config: P2PConfig) -> Result<Self, io::Error> {
         let addr = config.addr_map.remove(&name).unwrap();
-        let listener = TcpListener::bind(&addr).await?;
+        // an empty address in the address map means that this peer has no server address
+        let listener = if addr.is_empty() { 
+            None
+        } else { 
+            Some(TcpListener::bind(&addr).await?)
+        };
 
         let mut receivers = HashMap::new();
         let mut senders = HashMap::new();
@@ -124,8 +129,11 @@ impl P2PComm {
 
         let mut connected = Vec::new();
         for (_, addr) in &config.addr_map {
-            if let Ok(s) = TcpStream::connect(addr).await {
-                connected.push(s);
+            // an empty address in the address map means that this peer has no server address
+            if !addr.is_empty() {
+                if let Ok(s) = TcpStream::connect(addr).await {
+                    connected.push(s);
+                }
             }
         }
 
@@ -147,7 +155,14 @@ impl P2PComm {
         let stream = if let Some(s) = self.connected.pop() {
             s
         } else {
-            self.listener.accept().await?.0
+            match &mut self.listener {
+                Some(listener) => listener.accept().await?.0,
+                None => {
+                    // this communicator has no server port; it won't be accepting any more connections
+                    // wait forever
+                    future::pending().await
+                },
+            }
         };
 
         let cheese = Framed::new(stream, P2PCodec::new());
