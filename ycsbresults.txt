@@ -1,0 +1,90 @@
+RBASE YCSB WORKLOAD a WOOHOO
+operations: 2001
+operations: 15219
+finished! 172.430645ms 10000 57994.33157603743
+
+RBASE YCSB WORKLOAD b WOOHOO
+operations: 2001
+operations: 19555
+finished! 111.058765ms 10000 90042.42033485605
+
+RBASE YCSB WORKLOAD c WOOHOO
+operations: 2001
+operations: 20001
+finished! 92.158901ms 10000 108508.23839576819
+
+RBASE YCSB WORKLOAD d WOOHOO
+operations: 2001
+operations: 19873
+finished! 168.212271ms 10000 59448.69503604764
+
+_______________________________________________________
+
+
+RBASE YCSB WORKLOAD a WOOHOO
+operations: 2000
+operations: 10000
+finished! 79.655564ms 10000 125540.50838181248
+
+RBASE YCSB WORKLOAD b WOOHOO
+operations: 2000
+operations: 10000
+finished! 59.167587ms 10000 169011.45554575344
+
+RBASE YCSB WORKLOAD c WOOHOO
+operations: 2000
+operations: 10000
+finished! 54.333635ms 10000 184048.0578926847
+
+RBASE YCSB WORKLOAD d WOOHOO
+operations: 2000
+operations: 10000
+finished! 57.306015ms 10000 174501.75169220893
+
+_______________________________________________________
+
+REXP YCSB WORKLOAD a WOOHOO
+operations: 2001
+operations: 15219
+finished! 177.528369ms 10000 56329.02536270133
+
+REXP YCSB WORKLOAD b WOOHOO
+operations: 2001
+operations: 19555
+finished! 97.124751ms 10000 102960.36692027144
+
+REXP YCSB WORKLOAD c WOOHOO
+operations: 2001
+operations: 20001
+finished! 62.857752ms 10000 159089.36737031257
+
+REXP YCSB WORKLOAD d WOOHOO
+operations: 2001
+operations: 19873
+finished! 159.725935ms 10000 62607.24033326209
+
+______________________________________________________________________________
+
+REXP YCSB WORKLOAD a WOOHOO
+operations: 2000
+operations: 10000
+finished! 46.58126ms 10000 214678.60680453898
+
+REXP YCSB WORKLOAD b WOOHOO
+operations: 2000
+operations: 10000
+finished! 68.821434ms 10000 145303.5692339686
+
+REXP YCSB WORKLOAD c WOOHOO
+operations: 2000
+operations: 10000
+finished! 23.288335ms 10000 429399.5255564642
+
+REXP YCSB WORKLOAD d WOOHOO
+operations: 2000
+operations: 10000
+finished! 67.130248ms 10000 148964.14504531547
+
+______________________________________________________________________________
+
+

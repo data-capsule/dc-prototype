@@ -11,9 +11,11 @@ use crate::shared::crypto::{
     verify_signature, Hash, PrivateKey, PublicKey, SymmetricKey,
 };
 use crate::shared::dc_repr::{self, Metadata, Record, RecordBackPtr, RecordHeader};
-use crate::shared::request::{ManageRequest, RWRequest, Request, Response};
+use crate::shared::request::{ManageRequest, RWRequest, Response};
 
 use super::DCClientError;
+
+pub use crate::shared::request::Request;
 
 pub struct ClientConnection {
     name: String,

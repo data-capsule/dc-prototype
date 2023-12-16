@@ -32,6 +32,10 @@ harness = false
 name = "manyclient"
 harness = false
 
+[[bench]]
+name = "ycsb"
+harness = false
+
 [dependencies]
 openssl = "0.10.59"
 tokio = { version = "1.34.0", features = ["full"] }

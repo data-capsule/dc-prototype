@@ -10,9 +10,11 @@ use crate::shared::crypto::{
 };
 use crate::shared::merkle::merkle_tree_root;
 use crate::shared::readstate::ReadState;
-use crate::shared::request::{Request, Response};
+use crate::shared::request::Response;
 
 use super::DCClientError;
+
+pub use crate::shared::request::Request;
 
 pub struct ClientConnection {
     name: String,

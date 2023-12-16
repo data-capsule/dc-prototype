@@ -1,10 +1,93 @@
-know keys: 91 91
 
+
+
+
+TESTING REXP WITH 1000 CLIENTS true UNIQUE 1000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 4.336481399s
+All client reads done! finished in 1.341483159s
+All client proofs done! finished in 555.886458ms
+
+TESTING REXP WITH 1000 CLIENTS true UNIQUE 1000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 4.498857103s
+All client reads done! finished in 1.345750424s
+All client proofs done! finished in 551.65928ms
+
+TESTING REXP WITH 100 CLIENTS true UNIQUE 10000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 5.996983196s
+All client reads done! finished in 1.437086401s
+All client proofs done! finished in 718.783972ms
+
+finished setting up 100 clients in 1.207239405s
+TESTING REXP WITH 100 CLIENTS true UNIQUE 10000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 5.799648792s
+All client reads done! finished in 1.456273908s
+All client proofs done! finished in 690.036632ms
 
 TESTING REXP WITH 10 CLIENTS true UNIQUE 100000 RECORDS 1000 PER COMMIT
-All client writes done! finished in 11.881421625s
-All client reads done! finished in 2.179523485s
-All client proofs done! finished in 1.418098772s
+All client writes done! finished in 7.415993277s
+All client reads done! finished in 1.543068201s
+All client proofs done! finished in 1.030146325s
+
+TESTING REXP WITH 10 CLIENTS true UNIQUE 100000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 7.990553883s
+All client reads done! finished in 1.635658586s
+All client proofs done! finished in 1.045692807s
+
+TESTING REXP WITH 1 CLIENTS true UNIQUE 1000000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 19.215033578s
+All client reads done! finished in 4.425296892s
+All client proofs done! finished in 4.699171783s
+
+TESTING REXP WITH 1 CLIENTS true UNIQUE 1000000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 19.571952885s
+All client reads done! finished in 3.863355418s
+All client proofs done! finished in 4.298969151s
+
+______________________________________________________________________________
+
+
+TESTING RBASE WITH 1000 CLIENTS true UNIQUE 1000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 7.702862332s
+All client reads done! finished in 2.083953427s
+All client proofs done! finished in 2.771223041s
+
+TESTING RBASE WITH 1000 CLIENTS true UNIQUE 1000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 7.261824749s
+All client reads done! finished in 2.172771836s
+All client proofs done! finished in 2.850516525s
+
+TESTING RBASE WITH 100 CLIENTS true UNIQUE 10000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 7.715124965s
+All client reads done! finished in 2.073425806s
+All client proofs done! finished in 2.794866122s
+
+TESTING RBASE WITH 100 CLIENTS true UNIQUE 10000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 7.837606461s
+All client reads done! finished in 2.114397802s
+All client proofs done! finished in 2.873788909s
+
+TESTING RBASE WITH 10 CLIENTS true UNIQUE 100000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 8.569738943s
+All client reads done! finished in 2.802786706s
+All client proofs done! finished in 3.599459117s
+
+TESTING RBASE WITH 10 CLIENTS true UNIQUE 100000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 8.862649214s
+All client reads done! finished in 2.963743796s
+All client proofs done! finished in 3.656439793s
+
+TESTING RBASE WITH 1 CLIENTS true UNIQUE 1000000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 19.262786951s
+All client reads done! finished in 8.768392048s
+All client proofs done! finished in 10.181360375s
+
+TESTING RBASE WITH 1 CLIENTS true UNIQUE 1000000 RECORDS 1000 PER COMMIT
+All client writes done! finished in 20.479708975s
+All client reads done! finished in 9.464731856s
+All client proofs done! finished in 10.433530497s
+
+
+
 
 
 

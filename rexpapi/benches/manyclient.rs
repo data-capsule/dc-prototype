@@ -23,7 +23,7 @@ async fn keys(pk_file: &str) -> (EcKey<Private>, EcKey<Public>, EcKey<Public>) {
     (client_key, client_pubkey, server_pubkey)
 }
 
-const NUM_CLIENTS: usize = 10;
+const NUM_CLIENTS: usize = 1;
 const UNIQUE_DCS: bool = true;
 const TOTAL_RECORDS: usize = 1000000 / NUM_CLIENTS;
 const RECORDS_PER_COMMIT: usize = 1000;
